@@ -20,8 +20,9 @@ jobs:
       - run: npm run automate
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Same SocialAPI.ai key as local .env: either name works (code uses SOCAPI_KEY ?? SOCIAL_API_KEY).
+          SOCAPI_KEY: ${{ secrets.SOCAPI_KEY }}
           SOCIAL_API_KEY: ${{ secrets.SOCIAL_API_KEY }}
-          SOCAPI_KEY: ${{ secrets.SOCIAL_API_KEY }}
           HEYGEN_API_KEY: ${{ secrets.HEYGEN_API_KEY }}
           AUTOMATION_TIKTOK_ACCOUNT_ID: ${{ secrets.AUTOMATION_TIKTOK_ACCOUNT_ID }}
           AUTOMATION_DRY_RUN: ${{ vars.AUTOMATION_DRY_RUN }}

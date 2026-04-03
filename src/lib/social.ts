@@ -1,5 +1,6 @@
 const SOCIAL_BASE = "https://api.social-api.ai/v1";
 
+/** Single SocialAPI.ai API key — same Bearer for TikTok, Instagram, X, etc. */
 function bearer(): string {
   return (process.env.SOCAPI_KEY ?? process.env.SOCIAL_API_KEY ?? "").trim();
 }
