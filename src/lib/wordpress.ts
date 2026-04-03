@@ -9,8 +9,13 @@ export interface HarvestedArticle {
   published_at: string;
 }
 
+const DEFAULT_WP = "https://nextboyfriend.com";
+
+/** WordPress origin (no trailing slash). Empty `WORDPRESS_API_BASE` must fall back — GitHub vars often inject "". */
 function wpBase(): string {
-  return (process.env.WORDPRESS_API_BASE ?? "https://nextboyfriend.com").replace(/\/$/, "");
+  const raw = (process.env.WORDPRESS_API_BASE ?? "").trim();
+  const base = raw || DEFAULT_WP;
+  return base.replace(/\/$/, "");
 }
 
 /**
