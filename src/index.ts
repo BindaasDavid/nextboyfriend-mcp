@@ -1,23 +1,21 @@
-import { config } from "dotenv";
+import "./loadEnv.js";
 import { execSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { writeFileSync } from "node:fs";
-import { dirname, join, isAbsolute } from "node:path";
-import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { XMLParser } from "fast-xml-parser";
 import { z } from "zod";
-import { loadState, saveState } from "./state.js";
+import { claude } from "./lib/claude.js";
+import { resolveProjectPath } from "./lib/paths.js";
+import { buildPollinationsImageUrl } from "./lib/pollinations.js";
+import { normalizePostsList } from "./lib/posts.js";
+import { socialApi } from "./lib/social.js";
+import { parseTrendNewsRelated } from "./lib/trends.js";
+import { xmlParser } from "./lib/xml.js";
+import { harvestNewArticles } from "./lib/wordpress.js";
 
 const require = createRequire(import.meta.url);
 const FFMPEG_BIN = (require("ffmpeg-static") as string | null) ?? "ffmpeg";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = join(__dirname, "..");
-
-config({ path: join(PROJECT_ROOT, ".env") });
-config({ path: join(process.cwd(), ".env") });
 
 const SOCAPI_KEY = (process.env.SOCAPI_KEY ?? process.env.SOCIAL_API_KEY ?? "").trim();
 const ANTHROPIC_API_KEY = (process.env.ANTHROPIC_API_KEY ?? "").trim();
@@ -32,92 +30,6 @@ if (!ANTHROPIC_API_KEY) {
   console.error("ANTHROPIC_API_KEY is required.");
   process.exit(1);
 }
-
-const SOCIAL_BASE = "https://api.social-api.ai/v1";
-
-async function socialApi(path: string, method = "GET", body?: unknown) {
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${SOCAPI_KEY}`,
-  };
-  if (body !== undefined) {
-    headers["Content-Type"] = "application/json";
-  }
-  const res = await fetch(`${SOCIAL_BASE}${path}`, {
-    method,
-    headers,
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
-  if (!res.ok) {
-    throw new Error(`SocialAPI ${res.status}: ${await res.text()}`);
-  }
-  return res.json() as Promise<unknown>;
-}
-
-async function claude(system: string, user: string): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 4096,
-      system,
-      messages: [{ role: "user", content: user }],
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(`Claude API ${res.status}: ${await res.text()}`);
-  }
-  const data = (await res.json()) as {
-    content?: { type: string; text?: string }[];
-  };
-  return data.content?.[0]?.text ?? "";
-}
-
-function normalizePostsList(raw: unknown): unknown[] {
-  if (Array.isArray(raw)) {
-    return raw;
-  }
-  if (raw && typeof raw === "object" && "data" in raw) {
-    const d = (raw as { data: unknown }).data;
-    if (Array.isArray(d)) {
-      return d;
-    }
-  }
-  return raw === undefined ? [] : [raw];
-}
-
-function stripHtml(html: string): string {
-  return html.replace(/<[^>]+>/g, "").trim();
-}
-
-function parseTrendNewsRelated(item: Record<string, unknown>): string {
-  const raw = item["ht:news_item"];
-  if (raw === undefined || raw === null) {
-    return "";
-  }
-  const items = Array.isArray(raw) ? raw : [raw];
-  const titles: string[] = [];
-  for (const n of items) {
-    if (n && typeof n === "object") {
-      const o = n as Record<string, unknown>;
-      const t = o["ht:news_item_title"] ?? o.title;
-      if (typeof t === "string" && t) {
-        titles.push(t);
-      }
-    }
-  }
-  return titles.join(" | ");
-}
-
-function resolveProjectPath(p: string): string {
-  return isAbsolute(p) ? p : join(PROJECT_ROOT, p);
-}
-
-const xmlParser = new XMLParser({ ignoreAttributes: false, trimValues: true });
 
 const server = new McpServer(
   {
@@ -135,57 +47,7 @@ server.tool(
   "Fetch new WordPress posts since last run (nextboyfriend.com)",
   { limit: z.number().default(10) },
   async ({ limit }) => {
-    const state = loadState();
-    const params = new URLSearchParams({
-      per_page: String(limit),
-      orderby: "date",
-      order: "desc",
-      after: state.last_fetched_at,
-      _fields: "slug,link,title,excerpt,date",
-    });
-    const wpUrl = `https://nextboyfriend.com/wp-json/wp/v2/posts?${params}`;
-    const res = await fetch(wpUrl, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "nextboyfriend-mcp/1.0 (+https://nextboyfriend.com)",
-      },
-    });
-    const bodyText = await res.text();
-    if (!res.ok) {
-      throw new Error(`WP API ${res.status}: ${bodyText.slice(0, 300)}`);
-    }
-    let posts: Array<{
-      slug: string;
-      link: string;
-      title?: { rendered?: string };
-      excerpt?: { rendered?: string };
-      date: string;
-    }>;
-    try {
-      const parsed: unknown = JSON.parse(bodyText);
-      if (!Array.isArray(parsed)) {
-        throw new Error("not_array");
-      }
-      posts = parsed as typeof posts;
-    } catch {
-      throw new Error(
-        `WordPress REST did not return a JSON array. Preview: ${bodyText.slice(0, 120)}`,
-      );
-    }
-    const newPosts = posts.filter((p) => !state.seen_slugs.includes(p.slug));
-    const articles = newPosts.map((p) => ({
-      source_id: p.slug,
-      title: p.title?.rendered ?? "",
-      url: p.link,
-      excerpt: stripHtml(p.excerpt?.rendered ?? ""),
-      published_at: p.date,
-    }));
-
-    saveState({
-      last_fetched_at: new Date().toISOString(),
-      seen_slugs: [...state.seen_slugs, ...articles.map((a) => a.source_id)],
-    });
-
+    const articles = await harvestNewArticles(limit);
     const text = articles.length
       ? JSON.stringify(articles, null, 2)
       : "No new articles since last run.";
@@ -338,15 +200,7 @@ server.tool(
     format: z.enum(["square", "portrait", "landscape", "story"]).default("square"),
   },
   async ({ prompt, format }) => {
-    const dims: Record<string, [number, number]> = {
-      square: [1080, 1080],
-      portrait: [1080, 1350],
-      landscape: [1200, 630],
-      story: [1080, 1920],
-    };
-    const [w, h] = dims[format];
-    const encoded = encodeURIComponent(prompt);
-    const imageUrl = `https://image.pollinations.ai/prompt/${encoded}?width=${w}&height=${h}&nologo=true&model=flux&enhance=true`;
+    const { image_url: imageUrl, width: w, height: h } = buildPollinationsImageUrl(prompt, format);
     return {
       content: [
         {

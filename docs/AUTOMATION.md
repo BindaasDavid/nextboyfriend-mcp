@@ -76,7 +76,9 @@ flowchart LR
 | Article dedupe | `.article-state.json` in project cwd (gitignored) | Written by `fetch_articles` |
 | Env | `SOCAPI_KEY`, `ANTHROPIC_API_KEY`, optional `HEYGEN_API_KEY` | Document in GitHub Secrets for CI; never commit `.env` |
 
-**Gaps for full automation:** optional **GitHub Actions** worker; SocialAPI **media upload** (presign → `media_ids`) still manual or to be scripted outside MCP.
+**Implemented (TikTok-only CI):** `src/run.ts` runs `runTikTokAutomation()` — harvests new WordPress posts (`harvestNewArticles`), pulls a Google Trends snippet, asks Claude for TikTok JSON (caption + hashtags + image prompt), builds a Pollinations image URL, then `POST /v1/posts` to the **TikTok** account (`AUTOMATION_TIKTOK_ACCOUNT_ID` or auto-detect from `/accounts`). Wire with **`.github/workflows/mcp.yml`**: `npm run build` → `npm run automate`. Set `AUTOMATION_DRY_RUN=true` until you trust the payload.
+
+**Still optional / future:** Cloudflare Workers + D1/KV/R2 (this repo is Node + GitHub Actions today); HeyGen in the cron path; SocialAPI **media upload** (presign → `media_ids`) if your tenant rejects raw `media_urls`.
 
 ### GitHub
 

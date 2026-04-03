@@ -1,0 +1,120 @@
+import { claude } from "../lib/claude.js";
+import { buildPollinationsImageUrl } from "../lib/pollinations.js";
+import { socialApi } from "../lib/social.js";
+import { fetchGoogleTrendsSnippet } from "../lib/trends.js";
+import type { HarvestedArticle } from "../lib/wordpress.js";
+import { harvestNewArticles } from "../lib/wordpress.js";
+import { parseJsonObject } from "./json.js";
+import { resolveTikTokAccountId } from "./tiktokAccounts.js";
+
+function pickArticle(articles: HarvestedArticle[]): HarvestedArticle {
+  const seed = process.env.AUTOMATION_CONTENT_SEED;
+  if (seed) {
+    const h = hashString(seed + articles.map((a) => a.source_id).join(","));
+    return articles[h % articles.length]!;
+  }
+  return articles[0]!;
+}
+
+function hashString(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
+
+function buildPostText(caption: string, hashtags: string[]): string {
+  const tags = hashtags.map((t) => (t.startsWith("#") ? t : `#${t}`)).join(" ");
+  return tags ? `${caption.trim()}\n\n${tags}` : caption.trim();
+}
+
+/**
+ * GitHub Actions / cron: harvest → trends snippet → Claude (TikTok JSON) → Pollinations image → SocialAPI post (TikTok only).
+ */
+export async function runTikTokAutomation(): Promise<void> {
+  const dryRun =
+    String(process.env.AUTOMATION_DRY_RUN ?? "").toLowerCase() === "true" ||
+    String(process.env.AUTOMATION_DRY_RUN ?? "") === "1";
+
+  const limit = Math.min(15, Math.max(1, Number(process.env.AUTOMATION_HARVEST_LIMIT ?? "8") || 8));
+  const geo = (process.env.AUTOMATION_TRENDS_GEO ?? "US").trim();
+
+  console.log("[automation] Harvesting WordPress…");
+  const articles = await harvestNewArticles(limit);
+  if (articles.length === 0) {
+    console.log("[automation] No new articles since last run — nothing to post.");
+    return;
+  }
+
+  const article = pickArticle(articles);
+  console.log(`[automation] Using article: ${article.title} (${article.source_id})`);
+
+  let trendLine = "";
+  try {
+    trendLine = await fetchGoogleTrendsSnippet(geo, 8);
+    if (trendLine) {
+      console.log(`[automation] Trends snippet: ${trendLine.slice(0, 120)}…`);
+    }
+  } catch {
+    /* soft */
+  }
+
+  const userPrompt = `You create viral TikTok captions for women-focused relationship advice.
+
+Article title: ${article.title}
+Article excerpt: ${article.excerpt}
+Article URL: ${article.url}
+${trendLine ? `Current trending context (Google Trends, ${geo}): ${trendLine}` : ""}
+
+Return ONLY valid JSON (no markdown) with this shape:
+{
+  "caption": "Main caption, hook in first line, under 2200 chars, no URL spam",
+  "hashtags": ["tag1", "tag2", "up to 8 tags, no # prefix in strings"],
+  "image_prompt": "Detailed Pollinations prompt: stylish, empowering, woman-centered aesthetic, no text in image, vertical social feel"
+}`;
+
+  console.log("[automation] Generating TikTok copy with Claude…");
+  const raw = await claude(
+    "You are a viral dating-and-relationship content creator for women. Be warm, direct, never fake statistics. Output JSON only.",
+    userPrompt,
+  );
+
+  let plan: Record<string, unknown>;
+  try {
+    plan = parseJsonObject(raw);
+  } catch (e) {
+    console.error("[automation] Claude did not return parseable JSON:", raw.slice(0, 500));
+    throw e;
+  }
+
+  const caption = String(plan.caption ?? "");
+  const hashtagsRaw = plan.hashtags;
+  const hashtags = Array.isArray(hashtagsRaw)
+    ? hashtagsRaw.map((h) => String(h)).filter(Boolean)
+    : [];
+  const imagePrompt = String(plan.image_prompt ?? article.title);
+
+  if (!caption) {
+    throw new Error("Claude JSON missing caption");
+  }
+
+  const { image_url: imageUrl } = buildPollinationsImageUrl(imagePrompt, "story");
+  const postText = buildPostText(caption, hashtags);
+
+  const accountId = await resolveTikTokAccountId();
+  const body: Record<string, unknown> = {
+    text: postText,
+    targets: [{ account_id: accountId }],
+    media_urls: [imageUrl],
+  };
+
+  if (dryRun) {
+    console.log("[automation] AUTOMATION_DRY_RUN — would POST /posts:", JSON.stringify(body, null, 2));
+    return;
+  }
+
+  console.log("[automation] Posting to TikTok via SocialAPI…");
+  const result = await socialApi("/posts", "POST", body);
+  console.log("[automation] Success:", JSON.stringify(result, null, 2));
+}

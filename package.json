@@ -12,7 +12,8 @@
     "build:clean": "rm -rf dist && tsc",
     "watch": "tsc --watch",
     "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "automate": "node dist/run.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.82.0",

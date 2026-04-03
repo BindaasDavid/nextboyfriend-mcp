@@ -16,8 +16,15 @@ jobs:
       - uses: actions/setup-node@v5
         with: { node-version: "24" }
       - run: npm ci
-      - run: node src/run.js
+      - run: npm run build
+      - run: npm run automate
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SOCIAL_API_KEY: ${{ secrets.SOCIAL_API_KEY }}
+          SOCAPI_KEY: ${{ secrets.SOCIAL_API_KEY }}
           HEYGEN_API_KEY: ${{ secrets.HEYGEN_API_KEY }}
+          AUTOMATION_TIKTOK_ACCOUNT_ID: ${{ secrets.AUTOMATION_TIKTOK_ACCOUNT_ID }}
+          AUTOMATION_DRY_RUN: ${{ vars.AUTOMATION_DRY_RUN }}
+          AUTOMATION_HARVEST_LIMIT: ${{ vars.AUTOMATION_HARVEST_LIMIT }}
+          AUTOMATION_TRENDS_GEO: ${{ vars.AUTOMATION_TRENDS_GEO }}
+          WORDPRESS_API_BASE: ${{ vars.WORDPRESS_API_BASE }}
