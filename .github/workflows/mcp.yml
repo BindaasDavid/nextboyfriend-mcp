@@ -17,13 +17,23 @@ jobs:
         with: { node-version: "24" }
       - run: npm ci
       - run: npm run build
-      # Required secrets: ANTHROPIC_API_KEY, and SOCAPI_KEY or SOCIAL_API_KEY (same SocialAPI key as locally).
+      # Runners do not load .env — keys must be Repository (or Organization) secrets. Either name works:
+      - name: Verify SocialAPI secret
+        env:
+          SOCAPI_KEY: ${{ secrets.SOCAPI_KEY || secrets.SOCIAL_API_KEY }}
+          SOCIAL_API_KEY: ${{ secrets.SOCIAL_API_KEY || secrets.SOCAPI_KEY }}
+        run: |
+          if [ -z "$SOCAPI_KEY" ] && [ -z "$SOCIAL_API_KEY" ]; then
+            echo "::error::Add repository secret SOCAPI_KEY or SOCIAL_API_KEY (Settings → Secrets and variables → Actions). Your local .env is not copied to GitHub."
+            exit 1
+          fi
+          echo "SocialAPI credential is set (value hidden)."
       # If harvest fails: set repo variable WORDPRESS_API_BASE. If POST fails on media: vars AUTOMATION_INCLUDE_MEDIA_URLS=false
       - run: npm run automate
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          SOCAPI_KEY: ${{ secrets.SOCAPI_KEY }}
-          SOCIAL_API_KEY: ${{ secrets.SOCIAL_API_KEY }}
+          SOCAPI_KEY: ${{ secrets.SOCAPI_KEY || secrets.SOCIAL_API_KEY }}
+          SOCIAL_API_KEY: ${{ secrets.SOCIAL_API_KEY || secrets.SOCAPI_KEY }}
           HEYGEN_API_KEY: ${{ secrets.HEYGEN_API_KEY }}
           AUTOMATION_TIKTOK_ACCOUNT_ID: ${{ secrets.AUTOMATION_TIKTOK_ACCOUNT_ID }}
           AUTOMATION_DRY_RUN: ${{ vars.AUTOMATION_DRY_RUN }}
