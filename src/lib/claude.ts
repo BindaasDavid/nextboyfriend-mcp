@@ -18,7 +18,19 @@ export async function claude(system: string, user: string): Promise<string> {
     }),
   });
   if (!res.ok) {
-    throw new Error(`Claude API ${res.status}: ${await res.text()}`);
+    const body = await res.text();
+    let suffix = "";
+    try {
+      const j = JSON.parse(body) as { error?: { message?: string } };
+      const m = j.error?.message ?? "";
+      if (/credit balance|too low/i.test(m)) {
+        suffix =
+          "\n→ Anthropic: add credits or upgrade at console.anthropic.com (Settings → Plans & billing). The key is valid; the workspace balance is empty.";
+      }
+    } catch {
+      /* body not JSON */
+    }
+    throw new Error(`Claude API ${res.status}: ${body}${suffix}`);
   }
   const data = (await res.json()) as {
     content?: { type: string; text?: string }[];
