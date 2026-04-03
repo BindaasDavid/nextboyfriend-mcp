@@ -17,10 +17,11 @@ jobs:
         with: { node-version: "24" }
       - run: npm ci
       - run: npm run build
+      # Required secrets: ANTHROPIC_API_KEY, and SOCAPI_KEY or SOCIAL_API_KEY (same SocialAPI key as locally).
+      # If harvest fails: set repo variable WORDPRESS_API_BASE. If POST fails on media: vars AUTOMATION_INCLUDE_MEDIA_URLS=false
       - run: npm run automate
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          # Same SocialAPI.ai key as local .env: either name works (code uses SOCAPI_KEY ?? SOCIAL_API_KEY).
           SOCAPI_KEY: ${{ secrets.SOCAPI_KEY }}
           SOCIAL_API_KEY: ${{ secrets.SOCIAL_API_KEY }}
           HEYGEN_API_KEY: ${{ secrets.HEYGEN_API_KEY }}
@@ -28,4 +29,5 @@ jobs:
           AUTOMATION_DRY_RUN: ${{ vars.AUTOMATION_DRY_RUN }}
           AUTOMATION_HARVEST_LIMIT: ${{ vars.AUTOMATION_HARVEST_LIMIT }}
           AUTOMATION_TRENDS_GEO: ${{ vars.AUTOMATION_TRENDS_GEO }}
+          AUTOMATION_INCLUDE_MEDIA_URLS: ${{ vars.AUTOMATION_INCLUDE_MEDIA_URLS }}
           WORDPRESS_API_BASE: ${{ vars.WORDPRESS_API_BASE }}

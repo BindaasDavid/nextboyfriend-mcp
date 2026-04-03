@@ -29,10 +29,28 @@ function buildPostText(caption: string, hashtags: string[]): string {
   return tags ? `${caption.trim()}\n\n${tags}` : caption.trim();
 }
 
+function validateAutomationEnv(): void {
+  const missing: string[] = [];
+  if (!(process.env.SOCAPI_KEY ?? process.env.SOCIAL_API_KEY ?? "").trim()) {
+    missing.push("SOCAPI_KEY or SOCIAL_API_KEY");
+  }
+  if (!(process.env.ANTHROPIC_API_KEY ?? "").trim()) {
+    missing.push("ANTHROPIC_API_KEY");
+  }
+  if (missing.length) {
+    throw new Error(
+      `[automation] Missing required secrets: ${missing.join(", ")}. ` +
+        `Add them in GitHub → Settings → Secrets and variables → Actions (repository secrets).`,
+    );
+  }
+}
+
 /**
  * GitHub Actions / cron: harvest → trends snippet → Claude (TikTok JSON) → Pollinations image → SocialAPI post (TikTok only).
  */
 export async function runTikTokAutomation(): Promise<void> {
+  validateAutomationEnv();
+
   const dryRun =
     String(process.env.AUTOMATION_DRY_RUN ?? "").toLowerCase() === "true" ||
     String(process.env.AUTOMATION_DRY_RUN ?? "") === "1";
@@ -40,8 +58,22 @@ export async function runTikTokAutomation(): Promise<void> {
   const limit = Math.min(15, Math.max(1, Number(process.env.AUTOMATION_HARVEST_LIMIT ?? "8") || 8));
   const geo = (process.env.AUTOMATION_TRENDS_GEO ?? "US").trim();
 
+  const includeMediaUrls = !["0", "false", "no"].includes(
+    String(process.env.AUTOMATION_INCLUDE_MEDIA_URLS ?? "true").toLowerCase(),
+  );
+
   console.log("[automation] Harvesting WordPress…");
-  const articles = await harvestNewArticles(limit);
+  let articles: HarvestedArticle[];
+  try {
+    articles = await harvestNewArticles(limit);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(
+      `${msg}\n` +
+        `[automation] If the REST API returns HTML in CI, set GitHub repository variable WORDPRESS_API_BASE ` +
+        `to the WordPress origin that exposes /wp-json/ (see .env.example).`,
+    );
+  }
   if (articles.length === 0) {
     console.log("[automation] No new articles since last run — nothing to post.");
     return;
@@ -106,8 +138,10 @@ Return ONLY valid JSON (no markdown) with this shape:
   const body: Record<string, unknown> = {
     text: postText,
     targets: [{ account_id: accountId }],
-    media_urls: [imageUrl],
   };
+  if (includeMediaUrls) {
+    body.media_urls = [imageUrl];
+  }
 
   if (dryRun) {
     console.log("[automation] AUTOMATION_DRY_RUN — would POST /posts:", JSON.stringify(body, null, 2));
