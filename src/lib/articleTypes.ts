@@ -1,4 +1,4 @@
-/** Normalized article for posting pipelines (Supabase CMS or WordPress REST). */
+/** Normalized article for posting pipelines (Supabase `articles`). */
 export interface HarvestedArticle {
   source_id: string;
   title: string;

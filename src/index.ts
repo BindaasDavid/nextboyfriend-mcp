@@ -39,13 +39,13 @@ const server = new McpServer(
   },
   {
     instructions:
-      "Next Boyfriend MCP: article harvest (default Supabase articles; optional WordPress via ARTICLE_SOURCE=wordpress), Supabase list/review tools, Google Trends, YouTube Atom, Claude plans, Pollinations, ElevenLabs, FFmpeg, HeyGen, SocialAPI.",
+      "Next Boyfriend MCP: Supabase article harvest, list/review tools, Google Trends, YouTube Atom, Claude plans, Pollinations, ElevenLabs, FFmpeg, HeyGen, SocialAPI.",
   },
 );
 
 server.tool(
   "fetch_articles",
-  "Fetch new articles since last run (default: Supabase `articles` table; set ARTICLE_SOURCE=wordpress for WordPress REST)",
+  "Fetch new articles since last run (Supabase `articles` table, deduped via .article-state.json)",
   { limit: z.number().default(10) },
   async ({ limit }) => {
     const articles = await harvestArticles(limit);

@@ -72,11 +72,11 @@ flowchart LR
 | Item | Role | Inspect / action |
 |------|------|------------------|
 | MCP stdio server | Exposes SocialAPI operations to the model in Cursor | `npm run build && node dist/index.js` (stdio; use Cursor MCP config) |
-| Current tools (see `src/index.ts`) | WordPress harvest, trends, posting plans, Pollinations, HeyGen, SocialAPI posting/analytics | Single file; extend or split modules as needed |
+| Current tools (see `src/index.ts`) | Supabase article harvest, trends, posting plans, Pollinations, HeyGen, SocialAPI posting/analytics | Single file; extend or split modules as needed |
 | Article dedupe | `.article-state.json` in project cwd (gitignored) | Written by `fetch_articles` |
 | Env | `SOCAPI_KEY`, `ANTHROPIC_API_KEY`, optional `HEYGEN_API_KEY` | Document in GitHub Secrets for CI; never commit `.env` |
 
-**Implemented (TikTok-only CI):** `src/run.ts` runs `runTikTokAutomation()` — harvests new WordPress posts (`harvestNewArticles`), pulls a Google Trends snippet, asks Claude for TikTok JSON (caption + hashtags + image prompt), builds a Pollinations image URL, then `POST /v1/posts` to the **TikTok** account (`AUTOMATION_TIKTOK_ACCOUNT_ID` or auto-detect from `/accounts`). Wire with **`.github/workflows/mcp.yml`**: `npm run build` → `npm run automate`. Set `AUTOMATION_DRY_RUN=true` until you trust the payload.
+**Implemented (TikTok-only CI):** `src/run.ts` runs `runTikTokAutomation()` — harvests new rows from Supabase `articles` (`harvestArticles`), pulls a Google Trends snippet, asks Claude for TikTok JSON (caption + hashtags + image prompt), builds a Pollinations image URL, then `POST /v1/posts` to the **TikTok** account (`AUTOMATION_TIKTOK_ACCOUNT_ID` or auto-detect from `/accounts`). Wire with **`.github/workflows/mcp.yml`**: `npm run build` → `npm run automate`. Set `AUTOMATION_DRY_RUN=true` until you trust the payload.
 
 **Still optional / future:** Cloudflare Workers + D1/KV/R2 (this repo is Node + GitHub Actions today); HeyGen in the cron path; SocialAPI **media upload** (presign → `media_ids`) if your tenant rejects raw `media_urls`.
 
@@ -172,7 +172,7 @@ Use this as a living list; check items off in PRs or issues.
 
 ### Phase 2 — Content + captioning
 
-- [ ] Reuse or mirror `fetch_articles` (WordPress + `.article-state.json`) in CI, or call MCP from a runner.
+- [ ] Reuse or mirror `fetch_articles` (Supabase + `.article-state.json`) in CI, or call MCP from a runner.
 - [ ] Either wire **Anthropic SDK** in the worker or call **xAI** for captions; delete unused SDK if not used.
 - [ ] Add prompt templates under `prompts/` or `config/` to avoid drift between Claude and Grok.
 

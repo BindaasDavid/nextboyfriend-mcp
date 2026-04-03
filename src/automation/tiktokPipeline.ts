@@ -37,13 +37,8 @@ function validateAutomationEnv(): void {
   if (!(process.env.ANTHROPIC_API_KEY ?? "").trim()) {
     missing.push("ANTHROPIC_API_KEY");
   }
-  const articleSrc = (process.env.AUTOMATION_ARTICLE_SOURCE ?? process.env.ARTICLE_SOURCE ?? "supabase")
-    .trim()
-    .toLowerCase();
-  if (articleSrc !== "wordpress" && articleSrc !== "wp") {
-    if (!(process.env.SUPABASE_ANON_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim()) {
-      missing.push("SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY (articles are read from Supabase, not WordPress)");
-    }
+  if (!(process.env.SUPABASE_ANON_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim()) {
+    missing.push("SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY");
   }
   if (missing.length) {
     throw new Error(
@@ -70,20 +65,15 @@ export async function runTikTokAutomation(): Promise<void> {
     String(process.env.AUTOMATION_INCLUDE_MEDIA_URLS ?? "true").toLowerCase(),
   );
 
-  const src = (process.env.AUTOMATION_ARTICLE_SOURCE ?? "supabase").trim().toLowerCase();
-  console.log(
-    `[automation] Harvesting articles (${src === "wordpress" || src === "wp" ? "WordPress" : "Supabase"})…`,
-  );
+  console.log("[automation] Harvesting articles (Supabase)…");
   let articles: HarvestedArticle[];
   try {
     articles = await harvestArticles(limit);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    const hint =
-      src === "wordpress" || src === "wp"
-        ? `[automation] WordPress: set WORDPRESS_API_BASE if /wp-json/ is not on the default host.`
-        : `[automation] Supabase: set SUPABASE_ANON_KEY (or SERVICE_ROLE), SUPABASE_URL if needed, and check RLS allows read on articles.`;
-    throw new Error(`${msg}\n${hint}`);
+    throw new Error(
+      `${msg}\n[automation] Supabase: set SUPABASE_ANON_KEY (or SERVICE_ROLE), SUPABASE_URL if needed, and check RLS allows read on articles.`,
+    );
   }
   if (articles.length === 0) {
     console.log("[automation] No new articles since last run — nothing to post.");

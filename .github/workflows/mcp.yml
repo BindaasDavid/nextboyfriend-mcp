@@ -28,7 +28,7 @@ jobs:
             exit 1
           fi
           echo "SocialAPI credential is set (value hidden)."
-      # If harvest fails: set repo variable WORDPRESS_API_BASE. If POST fails on media: vars AUTOMATION_INCLUDE_MEDIA_URLS=false
+      # If harvest fails: check Supabase secrets/vars and RLS. If POST fails on media: vars AUTOMATION_INCLUDE_MEDIA_URLS=false
       - run: npm run automate
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -42,9 +42,7 @@ jobs:
           SUPABASE_ARTICLES_SELECT: ${{ vars.SUPABASE_ARTICLES_SELECT }}
           SUPABASE_ARTICLES_FILTER: ${{ vars.SUPABASE_ARTICLES_FILTER }}
           SUPABASE_ARTICLES_ORDER: ${{ vars.SUPABASE_ARTICLES_ORDER }}
-          AUTOMATION_ARTICLE_SOURCE: ${{ vars.AUTOMATION_ARTICLE_SOURCE }}
           AUTOMATION_DRY_RUN: ${{ vars.AUTOMATION_DRY_RUN }}
           AUTOMATION_HARVEST_LIMIT: ${{ vars.AUTOMATION_HARVEST_LIMIT }}
           AUTOMATION_TRENDS_GEO: ${{ vars.AUTOMATION_TRENDS_GEO }}
           AUTOMATION_INCLUDE_MEDIA_URLS: ${{ vars.AUTOMATION_INCLUDE_MEDIA_URLS }}
-          WORDPRESS_API_BASE: ${{ vars.WORDPRESS_API_BASE != '' && vars.WORDPRESS_API_BASE || 'https://nextboyfriend.com' }}
