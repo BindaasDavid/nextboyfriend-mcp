@@ -11,11 +11,17 @@ export interface HarvestedArticle {
 
 const DEFAULT_WP = "https://nextboyfriend.com";
 
-/** WordPress origin (no trailing slash). Empty `WORDPRESS_API_BASE` must fall back — GitHub vars often inject "". */
+/**
+ * WordPress origin (no trailing slash).
+ * GitHub Variables may be "", "/", or whitespace — all invalid for `fetch()`.
+ * Require a real http(s) origin or fall back to DEFAULT_WP.
+ */
 function wpBase(): string {
-  const raw = (process.env.WORDPRESS_API_BASE ?? "").trim();
-  const base = raw || DEFAULT_WP;
-  return base.replace(/\/$/, "");
+  let raw = (process.env.WORDPRESS_API_BASE ?? "").trim().replace(/\/$/, "");
+  if (!raw || !/^https?:\/\//i.test(raw)) {
+    raw = DEFAULT_WP.replace(/\/$/, "");
+  }
+  return raw;
 }
 
 /**
