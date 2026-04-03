@@ -32,6 +32,8 @@ jobs:
       - run: npm run automate
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
+          AUTOMATION_ANTHROPIC_MODEL: ${{ vars.AUTOMATION_ANTHROPIC_MODEL }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           SOCAPI_KEY: ${{ secrets.SOCAPI_KEY || secrets.SOCIAL_API_KEY }}
           SOCIAL_API_KEY: ${{ secrets.SOCIAL_API_KEY || secrets.SOCAPI_KEY }}

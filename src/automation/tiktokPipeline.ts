@@ -54,6 +54,20 @@ function validateAutomationEnv(templateCopy: boolean): void {
   }
 }
 
+const DEFAULT_AUTOMATION_MODEL = "claude-3-5-haiku-20241022";
+
+/**
+ * TikTok cron uses Haiku by default (cheap, enough for JSON captions).
+ * Override: `AUTOMATION_ANTHROPIC_MODEL` → else `ANTHROPIC_MODEL` → else Haiku.
+ */
+function resolveAutomationAnthropicModel(): string {
+  return (
+    (process.env.AUTOMATION_ANTHROPIC_MODEL ?? "").trim() ||
+    (process.env.ANTHROPIC_MODEL ?? "").trim() ||
+    DEFAULT_AUTOMATION_MODEL
+  );
+}
+
 /** When Claude is unavailable (e.g. no API credits), build minimal TikTok fields from the article. */
 function templateTikTokPlan(article: HarvestedArticle): Record<string, unknown> {
   const excerpt = article.excerpt?.trim() || article.title;
@@ -139,13 +153,17 @@ Return ONLY valid JSON (no markdown) with this shape:
   "image_prompt": "Detailed Pollinations prompt: stylish, empowering, woman-centered aesthetic, no text in image, vertical social feel"
 }`;
 
-    console.log("[automation] Generating TikTok copy with Claude…");
+    const automationModel = resolveAutomationAnthropicModel();
+    console.log(
+      `[automation] Generating TikTok copy with Claude (model: ${automationModel})…`,
+    );
     let fromClaude: Record<string, unknown> | undefined;
     let raw: string | undefined;
     try {
       raw = await claude(
         "You are a viral dating-and-relationship content creator for women. Be warm, direct, never fake statistics. Output JSON only.",
         userPrompt,
+        { model: automationModel },
       );
     } catch (e) {
       if (!isAnthropicInsufficientCreditError(e)) {
