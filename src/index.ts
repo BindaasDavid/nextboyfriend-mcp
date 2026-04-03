@@ -13,7 +13,7 @@ import { socialApi } from "./lib/social.js";
 import { parseTrendNewsRelated } from "./lib/trends.js";
 import { xmlParser } from "./lib/xml.js";
 import { listAllSupabaseArticles, supabaseArticlesRestUrl } from "./lib/supabaseArticles.js";
-import { harvestNewArticles } from "./lib/wordpress.js";
+import { harvestArticles } from "./lib/articleHarvest.js";
 
 const require = createRequire(import.meta.url);
 const FFMPEG_BIN = (require("ffmpeg-static") as string | null) ?? "ffmpeg";
@@ -39,16 +39,16 @@ const server = new McpServer(
   },
   {
     instructions:
-      "Next Boyfriend MCP: WordPress harvest, Supabase articles review (list + Claude), Google Trends, YouTube Atom, Claude posting plans, Pollinations, ElevenLabs, FFmpeg, HeyGen, SocialAPI.",
+      "Next Boyfriend MCP: article harvest (default Supabase articles; optional WordPress via ARTICLE_SOURCE=wordpress), Supabase list/review tools, Google Trends, YouTube Atom, Claude plans, Pollinations, ElevenLabs, FFmpeg, HeyGen, SocialAPI.",
   },
 );
 
 server.tool(
   "fetch_articles",
-  "Fetch new WordPress posts since last run (nextboyfriend.com)",
+  "Fetch new articles since last run (default: Supabase `articles` table; set ARTICLE_SOURCE=wordpress for WordPress REST)",
   { limit: z.number().default(10) },
   async ({ limit }) => {
-    const articles = await harvestNewArticles(limit);
+    const articles = await harvestArticles(limit);
     const text = articles.length
       ? JSON.stringify(articles, null, 2)
       : "No new articles since last run.";

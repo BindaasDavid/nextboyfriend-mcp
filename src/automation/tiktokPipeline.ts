@@ -1,9 +1,9 @@
+import { harvestArticles } from "../lib/articleHarvest.js";
+import type { HarvestedArticle } from "../lib/articleTypes.js";
 import { claude } from "../lib/claude.js";
 import { buildPollinationsImageUrl } from "../lib/pollinations.js";
 import { socialApi } from "../lib/social.js";
 import { fetchGoogleTrendsSnippet } from "../lib/trends.js";
-import type { HarvestedArticle } from "../lib/wordpress.js";
-import { harvestNewArticles } from "../lib/wordpress.js";
 import { parseJsonObject } from "./json.js";
 import { resolveTikTokAccountId } from "./tiktokAccounts.js";
 
@@ -37,6 +37,14 @@ function validateAutomationEnv(): void {
   if (!(process.env.ANTHROPIC_API_KEY ?? "").trim()) {
     missing.push("ANTHROPIC_API_KEY");
   }
+  const articleSrc = (process.env.AUTOMATION_ARTICLE_SOURCE ?? process.env.ARTICLE_SOURCE ?? "supabase")
+    .trim()
+    .toLowerCase();
+  if (articleSrc !== "wordpress" && articleSrc !== "wp") {
+    if (!(process.env.SUPABASE_ANON_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim()) {
+      missing.push("SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY (articles are read from Supabase, not WordPress)");
+    }
+  }
   if (missing.length) {
     throw new Error(
       `[automation] Missing required secrets: ${missing.join(", ")}. ` +
@@ -62,17 +70,20 @@ export async function runTikTokAutomation(): Promise<void> {
     String(process.env.AUTOMATION_INCLUDE_MEDIA_URLS ?? "true").toLowerCase(),
   );
 
-  console.log("[automation] Harvesting WordPress…");
+  const src = (process.env.AUTOMATION_ARTICLE_SOURCE ?? "supabase").trim().toLowerCase();
+  console.log(
+    `[automation] Harvesting articles (${src === "wordpress" || src === "wp" ? "WordPress" : "Supabase"})…`,
+  );
   let articles: HarvestedArticle[];
   try {
-    articles = await harvestNewArticles(limit);
+    articles = await harvestArticles(limit);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    throw new Error(
-      `${msg}\n` +
-        `[automation] If the REST API returns HTML in CI, set GitHub repository variable WORDPRESS_API_BASE ` +
-        `to the WordPress origin that exposes /wp-json/ (see .env.example).`,
-    );
+    const hint =
+      src === "wordpress" || src === "wp"
+        ? `[automation] WordPress: set WORDPRESS_API_BASE if /wp-json/ is not on the default host.`
+        : `[automation] Supabase: set SUPABASE_ANON_KEY (or SERVICE_ROLE), SUPABASE_URL if needed, and check RLS allows read on articles.`;
+    throw new Error(`${msg}\n${hint}`);
   }
   if (articles.length === 0) {
     console.log("[automation] No new articles since last run — nothing to post.");

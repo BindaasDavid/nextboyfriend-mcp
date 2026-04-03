@@ -1,13 +1,8 @@
 import { loadState, saveState } from "../state.js";
+import type { HarvestedArticle } from "./articleTypes.js";
 import { stripHtml } from "./text.js";
 
-export interface HarvestedArticle {
-  source_id: string;
-  title: string;
-  url: string;
-  excerpt: string;
-  published_at: string;
-}
+export type { HarvestedArticle } from "./articleTypes.js";
 
 const DEFAULT_WP = "https://nextboyfriend.com";
 

@@ -36,9 +36,13 @@ jobs:
           SOCIAL_API_KEY: ${{ secrets.SOCIAL_API_KEY || secrets.SOCAPI_KEY }}
           HEYGEN_API_KEY: ${{ secrets.HEYGEN_API_KEY }}
           AUTOMATION_TIKTOK_ACCOUNT_ID: ${{ secrets.AUTOMATION_TIKTOK_ACCOUNT_ID }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL != '' && vars.SUPABASE_URL || 'https://whkenlpvrcaztgmvkusa.supabase.co' }}
+          SUPABASE_ARTICLES_FILTER: ${{ vars.SUPABASE_ARTICLES_FILTER }}
+          AUTOMATION_ARTICLE_SOURCE: ${{ vars.AUTOMATION_ARTICLE_SOURCE }}
           AUTOMATION_DRY_RUN: ${{ vars.AUTOMATION_DRY_RUN }}
           AUTOMATION_HARVEST_LIMIT: ${{ vars.AUTOMATION_HARVEST_LIMIT }}
           AUTOMATION_TRENDS_GEO: ${{ vars.AUTOMATION_TRENDS_GEO }}
           AUTOMATION_INCLUDE_MEDIA_URLS: ${{ vars.AUTOMATION_INCLUDE_MEDIA_URLS }}
-          # Empty repo variable becomes "" in Node and broke URL parsing; default to real origin when unset.
           WORDPRESS_API_BASE: ${{ vars.WORDPRESS_API_BASE != '' && vars.WORDPRESS_API_BASE || 'https://nextboyfriend.com' }}

@@ -15,7 +15,7 @@ npm run build
 node dist/index.js     # stdio MCP; configure Cursor to run this with env
 ```
 
-Required env: `SOCAPI_KEY` or `SOCIAL_API_KEY` — **one** [SocialAPI.ai](https://docs.social-api.ai/) key for listing accounts, posting, and analytics (including **TikTok** once that account is connected in the SocialAPI dashboard). Optional: `ANTHROPIC_API_KEY`, `HEYGEN_API_KEY` (see `.env.example`). For scheduled TikTok runs in GitHub Actions, add the same key as repository secret `SOCAPI_KEY` and/or `SOCIAL_API_KEY`.
+Required env: `SOCAPI_KEY` or `SOCIAL_API_KEY` — **one** [SocialAPI.ai](https://docs.social-api.ai/) key for listing accounts, posting, and analytics (including **TikTok** once that account is connected in the SocialAPI dashboard). Article harvest for `fetch_articles` / automation uses **Supabase** (`articles`) by default; set `ARTICLE_SOURCE=wordpress` only if you use WordPress REST. Add `SUPABASE_ANON_KEY` (or service role) for CMS reads. Optional: `ANTHROPIC_API_KEY`, `HEYGEN_API_KEY` (see `.env.example`). In GitHub Actions, add the same SocialAPI key as secret `SOCAPI_KEY` and/or `SOCIAL_API_KEY`, plus Supabase secrets for automation.
 
 ## Cursor MCP
 
