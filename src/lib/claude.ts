@@ -1,3 +1,9 @@
+/** True when Anthropic rejected the request due to empty/low API credit balance. */
+export function isAnthropicInsufficientCreditError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /credit balance|too low to access the anthropic api/i.test(msg);
+}
+
 export async function claude(system: string, user: string): Promise<string> {
   const apiKey = (process.env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) {

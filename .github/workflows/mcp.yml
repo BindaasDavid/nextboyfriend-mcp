@@ -32,6 +32,7 @@ jobs:
       - run: npm run automate
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           SOCAPI_KEY: ${{ secrets.SOCAPI_KEY || secrets.SOCIAL_API_KEY }}
           SOCIAL_API_KEY: ${{ secrets.SOCIAL_API_KEY || secrets.SOCAPI_KEY }}
           HEYGEN_API_KEY: ${{ secrets.HEYGEN_API_KEY }}
@@ -48,3 +49,5 @@ jobs:
           AUTOMATION_INCLUDE_MEDIA_URLS: ${{ vars.AUTOMATION_INCLUDE_MEDIA_URLS }}
           # true = skip Claude (use excerpt + fixed hashtags); use when Anthropic has no API credits yet
           AUTOMATION_TEMPLATE_COPY: ${{ vars.AUTOMATION_TEMPLATE_COPY }}
+          AUTOMATION_NOTIFY_EMAIL: ${{ vars.AUTOMATION_NOTIFY_EMAIL }}
+          AUTOMATION_EMAIL_FROM: ${{ vars.AUTOMATION_EMAIL_FROM }}

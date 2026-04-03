@@ -1,6 +1,7 @@
 import { harvestArticles } from "../lib/articleHarvest.js";
 import type { HarvestedArticle } from "../lib/articleTypes.js";
-import { claude } from "../lib/claude.js";
+import { notifyAnthropicCreditsDepleted } from "../lib/automationNotify.js";
+import { claude, isAnthropicInsufficientCreditError } from "../lib/claude.js";
 import { buildPollinationsImageUrl } from "../lib/pollinations.js";
 import { socialApi } from "../lib/social.js";
 import { fetchGoogleTrendsSnippet } from "../lib/trends.js";
@@ -139,16 +140,39 @@ Return ONLY valid JSON (no markdown) with this shape:
 }`;
 
     console.log("[automation] Generating TikTok copy with Claude…");
-    const raw = await claude(
-      "You are a viral dating-and-relationship content creator for women. Be warm, direct, never fake statistics. Output JSON only.",
-      userPrompt,
-    );
+    let fromClaude: Record<string, unknown> | undefined;
+    let raw: string | undefined;
     try {
-      plan = parseJsonObject(raw);
+      raw = await claude(
+        "You are a viral dating-and-relationship content creator for women. Be warm, direct, never fake statistics. Output JSON only.",
+        userPrompt,
+      );
     } catch (e) {
-      console.error("[automation] Claude did not return parseable JSON:", raw.slice(0, 500));
-      throw e;
+      if (!isAnthropicInsufficientCreditError(e)) {
+        throw e;
+      }
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(
+        "[automation] Anthropic credits exhausted — using template copy (excerpt + default hashtags).",
+      );
+      await notifyAnthropicCreditsDepleted({
+        articleTitle: article.title,
+        errorSnippet: msg,
+      });
+      fromClaude = templateTikTokPlan(article);
     }
+    if (raw !== undefined) {
+      try {
+        fromClaude = parseJsonObject(raw);
+      } catch (e) {
+        console.error("[automation] Claude did not return parseable JSON:", raw.slice(0, 500));
+        throw e;
+      }
+    }
+    if (fromClaude === undefined) {
+      throw new Error("[automation] internal: no TikTok plan after Claude");
+    }
+    plan = fromClaude;
   }
 
   const caption = String(plan.caption ?? "");
