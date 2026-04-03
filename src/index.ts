@@ -12,6 +12,7 @@ import { normalizePostsList } from "./lib/posts.js";
 import { socialApi } from "./lib/social.js";
 import { parseTrendNewsRelated } from "./lib/trends.js";
 import { xmlParser } from "./lib/xml.js";
+import { listAllSupabaseArticles, supabaseArticlesRestUrl } from "./lib/supabaseArticles.js";
 import { harvestNewArticles } from "./lib/wordpress.js";
 
 const require = createRequire(import.meta.url);
@@ -38,7 +39,7 @@ const server = new McpServer(
   },
   {
     instructions:
-      "Next Boyfriend MCP: WordPress articles, Google Trends, YouTube search Atom, Claude posting plans, Pollinations images, ElevenLabs voice, FFmpeg reel assembly, optional HeyGen, SocialAPI accounts/posts/usage/engagement.",
+      "Next Boyfriend MCP: WordPress harvest, Supabase articles review (list + Claude), Google Trends, YouTube Atom, Claude posting plans, Pollinations, ElevenLabs, FFmpeg, HeyGen, SocialAPI.",
   },
 );
 
@@ -52,6 +53,89 @@ server.tool(
       ? JSON.stringify(articles, null, 2)
       : "No new articles since last run.";
     return { content: [{ type: "text", text }] };
+  },
+);
+
+server.tool(
+  "list_supabase_articles",
+  "List rows from Supabase REST …/articles (all pages up to max_rows). Uses SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY. Default URL: whkenlpvrcaztgmvkusa.supabase.co/rest/v1/articles unless overridden.",
+  {
+    max_rows: z.number().default(5000),
+    page_size: z.number().default(1000),
+    select: z.string().optional().describe("PostgREST select (default *)"),
+    filter: z
+      .string()
+      .optional()
+      .describe("Extra PostgREST filters, e.g. status=eq.published"),
+  },
+  async ({ max_rows, page_size, select, filter }) => {
+    const { rows, truncated, totalFetched } = await listAllSupabaseArticles({
+      maxRows: max_rows,
+      pageSize: page_size,
+      select,
+      filter,
+    });
+    const payload = {
+      rest_url: supabaseArticlesRestUrl(),
+      total_fetched: totalFetched,
+      truncated,
+      articles: rows,
+    };
+    return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] };
+  },
+);
+
+server.tool(
+  "review_supabase_articles",
+  "Load articles from Supabase (capped) and produce a Claude editorial review: themes, strengths, gaps, suggested priorities.",
+  {
+    max_rows: z
+      .number()
+      .default(120)
+      .describe("Max rows to load and summarize (keep reasonable for context limits)"),
+    page_size: z.number().default(500),
+    select: z.string().optional(),
+    filter: z.string().optional(),
+    focus: z
+      .string()
+      .optional()
+      .describe("Optional focus: e.g. SEO, tone, dating niche fit"),
+  },
+  async ({ max_rows, page_size, select, filter, focus }) => {
+    const { rows, truncated, totalFetched } = await listAllSupabaseArticles({
+      maxRows: max_rows,
+      pageSize: Math.min(page_size, 1000),
+      select,
+      filter,
+    });
+    const analysis = await claude(
+      "You are an editorial director for Next Boyfriend (women's relationship & dating advice). Be specific and actionable.",
+      `Here are article records from our CMS (JSON). ${truncated ? "Note: list was truncated at the cap." : ""}
+Total fetched: ${totalFetched}
+${focus ? `Editor focus: ${focus}` : ""}
+
+Data:
+${JSON.stringify(rows, null, 2)}
+
+Return structured markdown: (1) Inventory summary (2) Thematic clusters (3) Quality / consistency notes (4) Top 5 priorities to improve or publish (5) Any duplicate or thin content to merge or expand.`,
+    );
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              rest_url: supabaseArticlesRestUrl(),
+              rows_in_review: totalFetched,
+              truncated,
+              review: analysis,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+    };
   },
 );
 
