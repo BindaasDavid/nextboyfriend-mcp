@@ -66,14 +66,19 @@ server.tool(
     filter: z
       .string()
       .optional()
-      .describe("Extra PostgREST filters, e.g. status=eq.published"),
+      .describe("PostgREST filters, e.g. is_published=eq.true"),
+    order: z
+      .string()
+      .optional()
+      .describe("PostgREST order, e.g. created_at.desc"),
   },
-  async ({ max_rows, page_size, select, filter }) => {
+  async ({ max_rows, page_size, select, filter, order }) => {
     const { rows, truncated, totalFetched } = await listAllSupabaseArticles({
       maxRows: max_rows,
       pageSize: page_size,
       select,
       filter,
+      order,
     });
     const payload = {
       rest_url: supabaseArticlesRestUrl(),
@@ -96,17 +101,19 @@ server.tool(
     page_size: z.number().default(500),
     select: z.string().optional(),
     filter: z.string().optional(),
+    order: z.string().optional().describe("e.g. created_at.desc"),
     focus: z
       .string()
       .optional()
       .describe("Optional focus: e.g. SEO, tone, dating niche fit"),
   },
-  async ({ max_rows, page_size, select, filter, focus }) => {
+  async ({ max_rows, page_size, select, filter, order, focus }) => {
     const { rows, truncated, totalFetched } = await listAllSupabaseArticles({
       maxRows: max_rows,
       pageSize: Math.min(page_size, 1000),
       select,
       filter,
+      order,
     });
     const analysis = await claude(
       "You are an editorial director for Next Boyfriend (women's relationship & dating advice). Be specific and actionable.",

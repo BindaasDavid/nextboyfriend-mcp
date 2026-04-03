@@ -3,18 +3,26 @@ import type { HarvestedArticle } from "./articleTypes.js";
 import { listAllSupabaseArticles } from "./supabaseArticles.js";
 import { stripHtml } from "./text.js";
 
+/** Matches Next Boyfriend CMS columns (override via SUPABASE_ARTICLES_* env). */
+const DEFAULT_SELECT =
+  "id,title,slug,category,created_at,source_url,source_name,excerpt";
+const DEFAULT_FILTER = "is_published=eq.true";
+const DEFAULT_ORDER = "created_at.desc";
+
 function rowToArticle(row: Record<string, unknown>): HarvestedArticle | null {
   const id = row.id ?? row.slug;
   if (id === undefined || id === null || String(id).trim() === "") {
     return null;
   }
   const title = String(row.title ?? row.headline ?? row.name ?? "").trim();
-  const url = String(row.url ?? row.link ?? row.canonical_url ?? "").trim();
+  const url = String(
+    row.source_url ?? row.url ?? row.link ?? row.canonical_url ?? "",
+  ).trim();
   const excerpt = stripHtml(
     String(row.excerpt ?? row.summary ?? row.description ?? row.body ?? row.body_html ?? ""),
   );
   const published = String(
-    row.published_at ?? row.created_at ?? row.updated_at ?? new Date().toISOString(),
+    row.created_at ?? row.published_at ?? row.updated_at ?? new Date().toISOString(),
   );
   return {
     source_id: String(id),
@@ -30,14 +38,17 @@ function rowToArticle(row: Record<string, unknown>): HarvestedArticle | null {
  */
 export async function harvestNewArticlesFromSupabase(limit: number): Promise<HarvestedArticle[]> {
   const state = loadState();
-  const filter = (process.env.SUPABASE_ARTICLES_FILTER ?? "").trim();
+  const select = (process.env.SUPABASE_ARTICLES_SELECT ?? "").trim() || DEFAULT_SELECT;
+  const filter = (process.env.SUPABASE_ARTICLES_FILTER ?? "").trim() || DEFAULT_FILTER;
+  const order = (process.env.SUPABASE_ARTICLES_ORDER ?? "").trim() || DEFAULT_ORDER;
   const scanCap = Math.min(5000, Math.max(200, limit * 80));
 
   const { rows } = await listAllSupabaseArticles({
     maxRows: scanCap,
     pageSize: 500,
-    select: "*",
+    select,
     filter,
+    order,
   });
 
   const mapped: HarvestedArticle[] = [];

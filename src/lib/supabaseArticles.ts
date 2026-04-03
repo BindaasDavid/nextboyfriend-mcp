@@ -30,8 +30,10 @@ export function supabaseArticlesRestUrl(): string {
 export interface ListSupabaseArticlesOptions {
   /** PostgREST select fragment, default * */
   select?: string;
-  /** Extra PostgREST query, e.g. "status=eq.published" */
+  /** PostgREST filters, e.g. "is_published=eq.true" */
   filter?: string;
+  /** PostgREST order, e.g. "created_at.desc" */
+  order?: string;
   /** Max rows to return across all pages (safety cap). */
   maxRows: number;
   /** Rows per HTTP request (PostgREST Range). */
@@ -48,12 +50,16 @@ export async function listAllSupabaseArticles(
   const baseUrl = supabaseArticlesRestUrl();
   const select = (options.select ?? "*").trim() || "*";
   const filter = (options.filter ?? "").trim();
+  const order = (options.order ?? "").trim();
   const pageSize = Math.min(1000, Math.max(1, options.pageSize));
   const maxRows = Math.max(1, options.maxRows);
 
   const queryParts = [`select=${encodeURIComponent(select)}`];
   if (filter) {
     queryParts.push(filter);
+  }
+  if (order) {
+    queryParts.push(`order=${encodeURIComponent(order)}`);
   }
   const qs = queryParts.join("&");
   const url = baseUrl.includes("?") ? `${baseUrl}&${qs}` : `${baseUrl}?${qs}`;
