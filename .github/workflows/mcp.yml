@@ -46,3 +46,5 @@ jobs:
           AUTOMATION_HARVEST_LIMIT: ${{ vars.AUTOMATION_HARVEST_LIMIT }}
           AUTOMATION_TRENDS_GEO: ${{ vars.AUTOMATION_TRENDS_GEO }}
           AUTOMATION_INCLUDE_MEDIA_URLS: ${{ vars.AUTOMATION_INCLUDE_MEDIA_URLS }}
+          # true = skip Claude (use excerpt + fixed hashtags); use when Anthropic has no API credits yet
+          AUTOMATION_TEMPLATE_COPY: ${{ vars.AUTOMATION_TEMPLATE_COPY }}

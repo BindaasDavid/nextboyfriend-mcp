@@ -29,12 +29,17 @@ function buildPostText(caption: string, hashtags: string[]): string {
   return tags ? `${caption.trim()}\n\n${tags}` : caption.trim();
 }
 
-function validateAutomationEnv(): void {
+function envFlagTrue(name: string): boolean {
+  const v = String(process.env[name] ?? "").trim().toLowerCase();
+  return v === "true" || v === "1" || v === "yes";
+}
+
+function validateAutomationEnv(templateCopy: boolean): void {
   const missing: string[] = [];
   if (!(process.env.SOCAPI_KEY ?? process.env.SOCIAL_API_KEY ?? "").trim()) {
     missing.push("SOCAPI_KEY or SOCIAL_API_KEY");
   }
-  if (!(process.env.ANTHROPIC_API_KEY ?? "").trim()) {
+  if (!templateCopy && !(process.env.ANTHROPIC_API_KEY ?? "").trim()) {
     missing.push("ANTHROPIC_API_KEY");
   }
   if (!(process.env.SUPABASE_ANON_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim()) {
@@ -48,11 +53,30 @@ function validateAutomationEnv(): void {
   }
 }
 
+/** When Claude is unavailable (e.g. no API credits), build minimal TikTok fields from the article. */
+function templateTikTokPlan(article: HarvestedArticle): Record<string, unknown> {
+  const excerpt = article.excerpt?.trim() || article.title;
+  const caption =
+    excerpt.length > 2100 ? `${excerpt.slice(0, 2097)}…` : excerpt;
+  return {
+    caption,
+    hashtags: [
+      "relationships",
+      "healing",
+      "selfworth",
+      "dating",
+      "mentalhealth",
+    ],
+    image_prompt: `Editorial portrait, warm light, empowering mood, woman-centered, soft focus background, no text: ${article.title}`,
+  };
+}
+
 /**
  * GitHub Actions / cron: harvest → trends snippet → Claude (TikTok JSON) → Pollinations image → SocialAPI post (TikTok only).
  */
 export async function runTikTokAutomation(): Promise<void> {
-  validateAutomationEnv();
+  const templateCopy = envFlagTrue("AUTOMATION_TEMPLATE_COPY");
+  validateAutomationEnv(templateCopy);
 
   const dryRun =
     String(process.env.AUTOMATION_DRY_RUN ?? "").toLowerCase() === "true" ||
@@ -93,7 +117,14 @@ export async function runTikTokAutomation(): Promise<void> {
     /* soft */
   }
 
-  const userPrompt = `You create viral TikTok captions for women-focused relationship advice.
+  let plan: Record<string, unknown>;
+  if (templateCopy) {
+    console.log(
+      "[automation] AUTOMATION_TEMPLATE_COPY — skipping Claude (caption/hashtags from article; add Anthropic credits for AI copy)",
+    );
+    plan = templateTikTokPlan(article);
+  } else {
+    const userPrompt = `You create viral TikTok captions for women-focused relationship advice.
 
 Article title: ${article.title}
 Article excerpt: ${article.excerpt}
@@ -107,18 +138,17 @@ Return ONLY valid JSON (no markdown) with this shape:
   "image_prompt": "Detailed Pollinations prompt: stylish, empowering, woman-centered aesthetic, no text in image, vertical social feel"
 }`;
 
-  console.log("[automation] Generating TikTok copy with Claude…");
-  const raw = await claude(
-    "You are a viral dating-and-relationship content creator for women. Be warm, direct, never fake statistics. Output JSON only.",
-    userPrompt,
-  );
-
-  let plan: Record<string, unknown>;
-  try {
-    plan = parseJsonObject(raw);
-  } catch (e) {
-    console.error("[automation] Claude did not return parseable JSON:", raw.slice(0, 500));
-    throw e;
+    console.log("[automation] Generating TikTok copy with Claude…");
+    const raw = await claude(
+      "You are a viral dating-and-relationship content creator for women. Be warm, direct, never fake statistics. Output JSON only.",
+      userPrompt,
+    );
+    try {
+      plan = parseJsonObject(raw);
+    } catch (e) {
+      console.error("[automation] Claude did not return parseable JSON:", raw.slice(0, 500));
+      throw e;
+    }
   }
 
   const caption = String(plan.caption ?? "");
