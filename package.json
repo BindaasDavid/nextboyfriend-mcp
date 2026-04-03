@@ -1,0 +1,48 @@
+{
+  "name": "nextboyfriend-mcp",
+  "version": "1.0.0",
+  "description": "Next Boyfriend Social Posting",
+  "type": "module",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:clean": "rm -rf dist && tsc",
+    "watch": "tsc --watch",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.82.0",
+    "@aws-sdk/client-s3": "^3.1023.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "dotenv": "^17.4.0",
+    "fast-xml-parser": "^5.5.10",
+    "ffmpeg-static": "^5.3.0",
+    "node-fetch": "^3.3.2",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BindaasDavid/nextboyfriend-mcp.git"
+  },
+  "keywords": [
+    "social",
+    "posting",
+    "mcp",
+    "model-context-protocol"
+  ],
+  "author": "David Ashworth",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/BindaasDavid/nextboyfriend-mcp/issues"
+  },
+  "homepage": "https://github.com/BindaasDavid/nextboyfriend-mcp#readme"
+}
