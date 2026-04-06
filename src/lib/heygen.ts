@@ -19,6 +19,46 @@ function heygenOutputDimension(): { width: number; height: number } {
   return { ...DEFAULT_DIMENSION };
 }
 
+/** Warm default — reads as a soft wall, not stark studio white */
+const DEFAULT_BG_COLOR = "#E8E0D4";
+
+function envFlagTrue(name: string): boolean {
+  const v = String(process.env[name] ?? "").trim().toLowerCase();
+  return v === "true" || v === "1" || v === "yes";
+}
+
+/** Per-scene background: solid color (default) or public image URL (cozy room, etc.) */
+function heygenBackground(): Record<string, unknown> {
+  const imgUrl = (process.env.AUTOMATION_HEYGEN_BG_IMAGE_URL ?? "").trim();
+  if (imgUrl) {
+    return { type: "image", url: imgUrl, fit: "cover" };
+  }
+  let hex = (process.env.AUTOMATION_HEYGEN_BG_COLOR ?? DEFAULT_BG_COLOR).trim();
+  if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) {
+    hex = DEFAULT_BG_COLOR;
+  }
+  return { type: "color", value: hex };
+}
+
+function heygenVoiceSpeed(): number {
+  const raw = (process.env.AUTOMATION_HEYGEN_VOICE_SPEED ?? "0.96").trim();
+  const n = Number(raw);
+  if (Number.isFinite(n) && n >= 0.5 && n <= 1.5) {
+    return n;
+  }
+  return 0.96;
+}
+
+const VOICE_EMOTIONS = new Set(["Excited", "Friendly", "Serious", "Soothing", "Broadcaster"]);
+
+function heygenVoiceEmotion(): string | undefined {
+  const raw = (process.env.AUTOMATION_HEYGEN_VOICE_EMOTION ?? "Friendly").trim();
+  if (!raw || /^(none|off)$/i.test(raw)) {
+    return undefined;
+  }
+  return VOICE_EMOTIONS.has(raw) ? raw : "Friendly";
+}
+
 function apiKey(): string {
   const k = (process.env.HEYGEN_API_KEY ?? "").trim();
   if (!k) {
@@ -77,14 +117,35 @@ export async function generateHeygenAvatarVideo(params: GenerateHeygenVideoParam
     (params.voice_id ?? process.env.AUTOMATION_HEYGEN_VOICE_ID ?? "").trim() || DEFAULT_VOICE_ID;
 
   const dimension = heygenOutputDimension();
+  const character: Record<string, unknown> = {
+    type: "avatar",
+    avatar_id,
+    scale: 1,
+    avatar_style: "normal",
+  };
+  if (envFlagTrue("AUTOMATION_HEYGEN_USE_AVATAR_IV")) {
+    character.use_avatar_iv_model = true;
+  }
+  const voice: Record<string, unknown> = {
+    type: "text",
+    input_text: params.script,
+    voice_id,
+    speed: heygenVoiceSpeed(),
+  };
+  const em = heygenVoiceEmotion();
+  if (em) {
+    voice.emotion = em;
+  }
   const res = await fetch("https://api.heygen.com/v2/video/generate", {
     method: "POST",
     headers: heygenHeaders(),
     body: JSON.stringify({
+      caption: false,
       video_inputs: [
         {
-          character: { type: "avatar", avatar_id, scale: 1 },
-          voice: { type: "text", input_text: params.script, voice_id },
+          character,
+          voice,
+          background: heygenBackground(),
         },
       ],
       dimension: { width: dimension.width, height: dimension.height },

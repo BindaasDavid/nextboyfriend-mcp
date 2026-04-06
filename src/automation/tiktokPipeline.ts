@@ -102,7 +102,7 @@ function schemaLinesForChannels(channels: Channel[]): string {
       `"tiktok": {
   "caption": "on-screen / description, under 2200 chars",
   "hashtags": ["tag1", "tag2", "up to 8, no # prefix"],
-  "avatar_script": "spoken script for HeyGen voice only, max 300 chars, no hashtags, no emojis that break TTS"
+  "avatar_script": "spoken only; max 300 chars; human, friend-to-friend; no influencer clichés; no hashtags in script"
 }`,
     );
   }
@@ -260,7 +260,7 @@ Return ONLY valid JSON (no markdown) with exactly these top-level keys: ${channe
 Shape per channel:
 ${schemaLinesForChannels(channels)}
 
-TikTok: avatar_script is the ONLY text spoken by the HeyGen avatar (TTS). Keep it natural and under 300 characters.
+TikTok: avatar_script is the ONLY text spoken by the HeyGen avatar (TTS), max 300 chars. Write like a real person talking to a friend: conversational, warm, one idea. No "in this video", "unlock", "game-changer", "here's the thing", or generic influencer tone. No hashtags or emoji in avatar_script.
 Other channels: use distinct hooks and lengths appropriate to each platform (Instagram = visual + hashtags; Facebook = longer; X = concise).`;
 
     const automationModel = resolveAutomationAnthropicModel();
