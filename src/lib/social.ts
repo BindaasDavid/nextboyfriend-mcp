@@ -1,3 +1,5 @@
+import { compressMp4ForSocialUpload } from "./videoCompress.js";
+
 const SOCIAL_BASE = "https://api.social-api.ai/v1";
 
 /** Single SocialAPI.ai API key — same Bearer for TikTok, Instagram, X, etc. */
@@ -47,10 +49,22 @@ export async function socialApiMultipartUpload(
     },
     body: formData,
   });
+  const errBody = await res.text();
   if (!res.ok) {
-    throw new Error(`SocialAPI ${res.status}: ${await res.text()}`);
+    if (res.status === 413) {
+      throw new Error(
+        `SocialAPI 413: upload too large for /media/upload. ` +
+          `Use smaller HeyGen output (AUTOMATION_HEYGEN_WIDTH/HEIGHT, default 720×1280) and keep ffmpeg re-encode on (clear AUTOMATION_SKIP_HEYGEN_REENCODE). ` +
+          errBody.slice(0, 200),
+      );
+    }
+    throw new Error(`SocialAPI ${res.status}: ${errBody}`);
   }
-  return res.json() as Promise<unknown>;
+  try {
+    return JSON.parse(errBody) as unknown;
+  } catch {
+    throw new Error(`SocialAPI: expected JSON from /media/upload, got: ${errBody.slice(0, 200)}`);
+  }
 }
 
 /** Upload arbitrary bytes (image or video) to SocialAPI; returns `media_id` for `POST /posts`. */
@@ -81,6 +95,35 @@ export async function uploadMediaFromRemoteUrl(
   }
   const ct = downloadRes.headers.get("content-type") ?? "application/octet-stream";
   const buf = Buffer.from(await downloadRes.arrayBuffer());
+  return uploadMediaBuffer(buf, ct, filename);
+}
+
+/**
+ * HeyGen MP4 → optional ffmpeg pass (smaller H.264) → SocialAPI /media/upload.
+ * Set AUTOMATION_SKIP_HEYGEN_REENCODE=true to upload the raw HeyGen file (may hit 413 on large 1080p renders).
+ */
+export async function uploadHeygenMp4ToSocial(mp4Url: string, filename: string): Promise<string> {
+  const downloadRes = await fetch(mp4Url, { signal: AbortSignal.timeout(600_000) });
+  if (!downloadRes.ok) {
+    throw new Error(`HeyGen MP4 download failed (${downloadRes.status}): ${mp4Url.slice(0, 160)}`);
+  }
+  const ct = downloadRes.headers.get("content-type") ?? "video/mp4";
+  let buf: Buffer = Buffer.from(await downloadRes.arrayBuffer());
+  const skip = ["1", "true", "yes"].includes(
+    String(process.env.AUTOMATION_SKIP_HEYGEN_REENCODE ?? "").toLowerCase(),
+  );
+  if (!skip) {
+    try {
+      const next = compressMp4ForSocialUpload(buf);
+      console.log(
+        `[automation] Re-encoded MP4 for SocialAPI: ${(buf.length / 1e6).toFixed(2)} MB → ${(next.length / 1e6).toFixed(2)} MB`,
+      );
+      buf = Buffer.from(next);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`[automation] ffmpeg re-encode failed (${msg}) — uploading original bytes`);
+    }
+  }
   return uploadMediaBuffer(buf, ct, filename);
 }
 

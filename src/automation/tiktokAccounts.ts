@@ -4,6 +4,14 @@ function asRecord(x: unknown): Record<string, unknown> | null {
   return x && typeof x === "object" ? (x as Record<string, unknown>) : null;
 }
 
+/** Env var per SocialAPI platform for `POST /posts` targets. */
+export const PLATFORM_ACCOUNT_ENV: Record<string, string> = {
+  tiktok: "AUTOMATION_TIKTOK_ACCOUNT_ID",
+  instagram: "AUTOMATION_INSTAGRAM_ACCOUNT_ID",
+  facebook: "AUTOMATION_FACEBOOK_ACCOUNT_ID",
+  x: "AUTOMATION_X_ACCOUNT_ID",
+};
+
 /** Best-effort: SocialAPI account list shapes vary — try common patterns. */
 function listAccountsFromResponse(raw: unknown): Record<string, unknown>[] {
   if (Array.isArray(raw)) {
@@ -22,10 +30,13 @@ function listAccountsFromResponse(raw: unknown): Record<string, unknown>[] {
   return [];
 }
 
-function isTikTokAccount(row: Record<string, unknown>): boolean {
+export function isPlatformAccount(row: Record<string, unknown>, platform: string): boolean {
   const p = String(row.platform ?? row.provider ?? row.network ?? row.type ?? row.channel ?? "").toLowerCase();
   const n = String(row.name ?? row.username ?? row.handle ?? "").toLowerCase();
-  return p.includes("tiktok") || n.includes("tiktok");
+  if (platform === "x") {
+    return p.includes("twitter") || p === "x" || n.includes("twitter");
+  }
+  return p.includes(platform) || n.includes(platform);
 }
 
 function normalizeHandle(s: string): string {
@@ -59,20 +70,23 @@ function summarizeAccountsForError(rows: Record<string, unknown>[]): string {
 }
 
 /**
- * TikTok account id for SocialAPI `targets`.
- * `AUTOMATION_TIKTOK_ACCOUNT_ID` may be an internal id **or** a handle (e.g. nextboyfriend_community);
- * we match GET /accounts and prefer the API’s canonical `id` when found.
+ * Resolve connected account id for SocialAPI (`tiktok` | `instagram` | `facebook` | `x`).
+ * Uses `AUTOMATION_<PLATFORM>_ACCOUNT_ID` or first matching account from GET /accounts.
  */
-export async function resolveTikTokAccountId(): Promise<string> {
-  const envId = (process.env.AUTOMATION_TIKTOK_ACCOUNT_ID ?? "").trim();
+export async function resolvePlatformAccount(platform: string): Promise<string> {
+  const envKey = PLATFORM_ACCOUNT_ENV[platform];
+  if (!envKey) {
+    throw new Error(`Unknown platform: ${platform}. Expected one of: ${Object.keys(PLATFORM_ACCOUNT_ENV).join(", ")}`);
+  }
+  const envId = (process.env[envKey] ?? "").trim();
   const raw = await socialApi("/accounts");
   const rows = listAccountsFromResponse(raw);
+  const platformRows = rows.filter((r) => isPlatformAccount(r, platform));
 
   if (envId) {
     const want = normalizeHandle(envId);
-    const tikTokRows = rows.filter(isTikTokAccount);
     const byEnv =
-      tikTokRows.find((r) => rowMatchesEnvId(r, want)) ??
+      platformRows.find((r) => rowMatchesEnvId(r, want)) ??
       rows.find((r) => rowMatchesEnvId(r, want));
     if (byEnv) {
       const canonical = byEnv.id ?? byEnv.account_id ?? byEnv.accountId;
@@ -80,30 +94,31 @@ export async function resolveTikTokAccountId(): Promise<string> {
         return String(canonical);
       }
     }
-    /** Handles / usernames are not always valid `account_id` for POST /posts — need internal id from /accounts. */
     if (rows.length > 0) {
-      const tikTokSummary = summarizeAccountsForError(tikTokRows.length ? tikTokRows : rows);
+      const summary = summarizeAccountsForError(platformRows.length ? platformRows : rows);
       throw new Error(
-        `AUTOMATION_TIKTOK_ACCOUNT_ID="${envId}" did not match a TikTok account from SocialAPI GET /accounts.\n` +
-          `Use the exact internal id from the list below (or fix the handle). Connected accounts:\n${tikTokSummary}\n` +
-          `In GitHub: Settings → Secrets → AUTOMATION_TIKTOK_ACCOUNT_ID. In SocialAPI dashboard, confirm TikTok is connected.`,
+        `${envKey}="${envId}" did not match a ${platform} account from GET /accounts.\n${summary}`,
       );
     }
     console.warn(
-      `[automation] GET /accounts returned 0 rows; posting with AUTOMATION_TIKTOK_ACCOUNT_ID as-is (${envId}). If POST fails with account_not_found, set the internal id from SocialAPI.`,
+      `[automation] GET /accounts returned 0 rows; posting with ${envKey} as-is (${envId}). If POST fails with account_not_found, set the internal id from SocialAPI.`,
     );
     return envId;
   }
 
-  const tik = rows.find(isTikTokAccount);
-  const id = tik?.id ?? tik?.account_id ?? tik?.accountId;
+  const first = platformRows[0] ?? rows.find((r) => isPlatformAccount(r, platform));
+  const id = first?.id ?? first?.account_id ?? first?.accountId;
   if (id !== undefined && id !== null && String(id)) {
     return String(id);
   }
   throw new Error(
     rows.length > 0
-      ? `No TikTok account in SocialAPI response. Accounts returned:\n${summarizeAccountsForError(rows)}\n` +
-          `Connect TikTok in SocialAPI or set AUTOMATION_TIKTOK_ACCOUNT_ID to an id from the list.`
-      : "No TikTok account: GET /accounts returned no rows. Check SOCAPI_KEY and SocialAPI dashboard (connect TikTok).",
+      ? `No ${platform} account in SocialAPI response. Accounts:\n${summarizeAccountsForError(rows)}`
+      : `No ${platform} account: GET /accounts returned no rows. Connect the account in SocialAPI or set ${envKey}.`,
   );
+}
+
+/** @deprecated Use resolvePlatformAccount("tiktok") */
+export async function resolveTikTokAccountId(): Promise<string> {
+  return resolvePlatformAccount("tiktok");
 }

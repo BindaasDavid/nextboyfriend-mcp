@@ -5,8 +5,19 @@
 
 const DEFAULT_AVATAR_ID = "Daisy-inskirt-20220818";
 const DEFAULT_VOICE_ID = "1bd001e7e50f421d891986aad5158bc8";
+/** Default 9:16 — smaller than 1080p to keep MP4 under SocialAPI upload limits */
+const DEFAULT_DIMENSION = { width: 720, height: 1280 };
 /** HeyGen text-to-speech input limit — keep under API caps */
 const MAX_SCRIPT_CHARS = 300;
+
+function heygenOutputDimension(): { width: number; height: number } {
+  const w = Number((process.env.AUTOMATION_HEYGEN_WIDTH ?? "").trim());
+  const h = Number((process.env.AUTOMATION_HEYGEN_HEIGHT ?? "").trim());
+  if (Number.isFinite(w) && Number.isFinite(h) && w >= 256 && h >= 256 && w <= 1920 && h <= 1920) {
+    return { width: Math.round(w), height: Math.round(h) };
+  }
+  return { ...DEFAULT_DIMENSION };
+}
 
 function apiKey(): string {
   const k = (process.env.HEYGEN_API_KEY ?? "").trim();
@@ -14,6 +25,27 @@ function apiKey(): string {
     throw new Error("HEYGEN_API_KEY is not set");
   }
   return k;
+}
+
+/** HeyGen docs use lowercase `x-api-key`; keep in sync with https://docs.heygen.com/reference/create-an-avatar-video-v2 */
+function heygenHeaders(): HeadersInit {
+  return { "x-api-key": apiKey(), "Content-Type": "application/json" };
+}
+
+function heygenAuthHint(status: number): string {
+  if (status !== 401 && status !== 403) {
+    return "";
+  }
+  return (
+    "\n\nHeyGen rejected the API key (401/403). Fix: use the key from the HeyGen app (Settings → API / API token). " +
+    "Paste it into GitHub → Settings → Secrets and variables → Actions → HEYGEN_API_KEY with no quotes or extra spaces. " +
+    "Regenerate the key in HeyGen if it was rotated. Local runs use .env in the repo root."
+  );
+}
+
+function throwHeygenHttpError(op: string, res: Response, body: string): never {
+  const snippet = body.slice(0, 800);
+  throw new Error(`HeyGen ${op} ${res.status}: ${snippet}${heygenAuthHint(res.status)}`);
 }
 
 /** Truncate caption to a spoken script for avatar TTS. */
@@ -44,9 +76,10 @@ export async function generateHeygenAvatarVideo(params: GenerateHeygenVideoParam
   const voice_id =
     (params.voice_id ?? process.env.AUTOMATION_HEYGEN_VOICE_ID ?? "").trim() || DEFAULT_VOICE_ID;
 
+  const dimension = heygenOutputDimension();
   const res = await fetch("https://api.heygen.com/v2/video/generate", {
     method: "POST",
-    headers: { "X-Api-Key": apiKey(), "Content-Type": "application/json" },
+    headers: heygenHeaders(),
     body: JSON.stringify({
       video_inputs: [
         {
@@ -54,13 +87,13 @@ export async function generateHeygenAvatarVideo(params: GenerateHeygenVideoParam
           voice: { type: "text", input_text: params.script, voice_id },
         },
       ],
-      dimension: { width: 1080, height: 1920 },
+      dimension: { width: dimension.width, height: dimension.height },
       title: params.title.slice(0, 120),
     }),
   });
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`HeyGen generate ${res.status}: ${text.slice(0, 800)}`);
+    throwHeygenHttpError("generate", res, text);
   }
   const data = JSON.parse(text) as { data?: { video_id?: string } };
   const video_id = data.data?.video_id;
@@ -117,11 +150,11 @@ export async function waitForHeygenVideoComplete(
   while (Date.now() < deadline) {
     const res = await fetch(
       `https://api.heygen.com/v1/video_status.get?video_id=${encodeURIComponent(videoId)}`,
-      { headers: { "X-Api-Key": apiKey() } },
+      { headers: { "x-api-key": apiKey() } },
     );
     const text = await res.text();
     if (!res.ok) {
-      throw new Error(`HeyGen status ${res.status}: ${text.slice(0, 600)}`);
+      throwHeygenHttpError("status", res, text);
     }
     let json: unknown;
     try {

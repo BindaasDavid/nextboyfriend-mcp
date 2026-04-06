@@ -7,15 +7,18 @@ import {
   truncateHeygenScript,
   waitForHeygenVideoComplete,
 } from "../lib/heygen.js";
-import { buildPollinationsImageUrl } from "../lib/pollinations.js";
+import { buildPollinationsImageUrl, type PollinationsFormat } from "../lib/pollinations.js";
 import {
   socialApi,
+  uploadHeygenMp4ToSocial,
   uploadMediaFromPollinationsUrl,
-  uploadMediaFromRemoteUrl,
 } from "../lib/social.js";
 import { fetchGoogleTrendsSnippet } from "../lib/trends.js";
 import { parseJsonObject } from "./json.js";
-import { resolveTikTokAccountId } from "./tiktokAccounts.js";
+import { resolvePlatformAccount } from "./tiktokAccounts.js";
+
+const CHANNEL_ORDER = ["tiktok", "instagram", "facebook", "x"] as const;
+type Channel = (typeof CHANNEL_ORDER)[number];
 
 function pickArticle(articles: HarvestedArticle[]): HarvestedArticle {
   const seed = process.env.AUTOMATION_CONTENT_SEED;
@@ -44,7 +47,20 @@ function envFlagTrue(name: string): boolean {
   return v === "true" || v === "1" || v === "yes";
 }
 
-function validateAutomationEnv(templateCopy: boolean): void {
+/** Parse comma-separated list; default `tiktok` only. */
+export function parseAutomationChannels(): Channel[] {
+  const raw = (process.env.AUTOMATION_CHANNELS ?? "tiktok").trim().toLowerCase();
+  const parts = raw
+    .split(/[,;\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((p) => (p === "twitter" ? "x" : p));
+  const allowed = new Set<string>(CHANNEL_ORDER);
+  const out = parts.filter((p) => allowed.has(p)) as Channel[];
+  return out.length ? out : ["tiktok"];
+}
+
+function validateAutomationEnv(templateCopy: boolean, channels: Channel[], includeMedia: boolean): void {
   const missing: string[] = [];
   if (!(process.env.SOCAPI_KEY ?? process.env.SOCIAL_API_KEY ?? "").trim()) {
     missing.push("SOCAPI_KEY or SOCIAL_API_KEY");
@@ -61,15 +77,16 @@ function validateAutomationEnv(templateCopy: boolean): void {
         `Add them in GitHub → Settings → Secrets and variables → Actions (repository secrets).`,
     );
   }
+  if (includeMedia && channels.includes("tiktok") && !(process.env.HEYGEN_API_KEY ?? "").trim()) {
+    throw new Error(
+      "[automation] TikTok video requires HEYGEN_API_KEY (all TikTok media uses HeyGen). " +
+        "Set AUTOMATION_INCLUDE_MEDIA_URLS=false for text-only TikTok, or add HEYGEN_API_KEY.",
+    );
+  }
 }
 
-/** Cheap automation default; Anthropic retires old IDs — see https://docs.anthropic.com/en/docs/about-claude/models */
 const DEFAULT_AUTOMATION_MODEL = "claude-haiku-4-5-20251001";
 
-/**
- * TikTok cron uses Haiku by default (cheap, enough for JSON captions).
- * Override: `AUTOMATION_ANTHROPIC_MODEL` → else `ANTHROPIC_MODEL` → else Haiku.
- */
 function resolveAutomationAnthropicModel(): string {
   return (
     (process.env.AUTOMATION_ANTHROPIC_MODEL ?? "").trim() ||
@@ -78,40 +95,112 @@ function resolveAutomationAnthropicModel(): string {
   );
 }
 
-/** When Claude is unavailable (e.g. no API credits), build minimal TikTok fields from the article. */
-function templateTikTokPlan(article: HarvestedArticle): Record<string, unknown> {
-  const excerpt = article.excerpt?.trim() || article.title;
-  const caption =
-    excerpt.length > 2100 ? `${excerpt.slice(0, 2097)}…` : excerpt;
-  return {
-    caption,
-    hashtags: [
-      "relationships",
-      "healing",
-      "selfworth",
-      "dating",
-      "mentalhealth",
-    ],
-    image_prompt: `Editorial portrait, warm light, empowering mood, woman-centered, soft focus background, no text: ${article.title}`,
-  };
+function schemaLinesForChannels(channels: Channel[]): string {
+  const lines: string[] = [];
+  if (channels.includes("tiktok")) {
+    lines.push(
+      `"tiktok": {
+  "caption": "on-screen / description, under 2200 chars",
+  "hashtags": ["tag1", "tag2", "up to 8, no # prefix"],
+  "avatar_script": "spoken script for HeyGen voice only, max 300 chars, no hashtags, no emojis that break TTS"
+}`,
+    );
+  }
+  if (channels.includes("instagram")) {
+    lines.push(
+      `"instagram": {
+  "caption": "feed caption; line breaks ok",
+  "hashtags": ["up to 15 tags"],
+  "image_prompt": "Pollinations prompt: vertical or square aesthetic, no text in image",
+  "pollinations_format": "square" | "portrait" | "story"
+}`,
+    );
+  }
+  if (channels.includes("facebook")) {
+    lines.push(
+      `"facebook": {
+  "caption": "longer post body; engaging first line",
+  "hashtags": ["optional", "fewer"],
+  "image_prompt": "Pollinations prompt: landscape or square for link-style share",
+  "pollinations_format": "landscape" | "square"
+}`,
+    );
+  }
+  if (channels.includes("x")) {
+    lines.push(
+      `"x": {
+  "text": "single post under 280 chars; include 1-2 hashtags inline if space"
+}`,
+    );
+  }
+  return lines.join(",\n");
 }
 
-function useHeygenForVideo(): boolean {
-  const key = (process.env.HEYGEN_API_KEY ?? "").trim();
-  if (!key) {
-    return false;
+function templateRepurpose(article: HarvestedArticle, channels: Channel[]): Record<string, unknown> {
+  const excerpt = article.excerpt?.trim() || article.title;
+  const cap = excerpt.length > 2100 ? `${excerpt.slice(0, 2097)}…` : excerpt;
+  const script = article.excerpt?.trim().slice(0, 300) || article.title.slice(0, 300);
+  const out: Record<string, unknown> = {};
+  const tags = ["relationships", "healing", "selfworth", "dating", "mentalhealth"];
+  if (channels.includes("tiktok")) {
+    out.tiktok = { caption: cap, hashtags: tags, avatar_script: script };
   }
-  return !["0", "false", "no"].includes(
-    String(process.env.AUTOMATION_USE_HEYGEN ?? "").trim().toLowerCase(),
-  );
+  if (channels.includes("instagram")) {
+    out.instagram = {
+      caption: cap.slice(0, 2200),
+      hashtags: tags,
+      image_prompt: `Editorial portrait, warm light, empowering, woman-centered: ${article.title}`,
+      pollinations_format: "square",
+    };
+  }
+  if (channels.includes("facebook")) {
+    out.facebook = {
+      caption: cap.slice(0, 5000),
+      hashtags: tags.slice(0, 3),
+      image_prompt: `Warm editorial scene, community, empowerment: ${article.title}`,
+      pollinations_format: "landscape",
+    };
+  }
+  if (channels.includes("x")) {
+    const t = excerpt.length > 270 ? `${excerpt.slice(0, 267)}…` : excerpt;
+    out.x = { text: `${t} #relationships` };
+  }
+  return out;
+}
+
+function asPollinationsFormat(s: unknown): PollinationsFormat {
+  const v = String(s ?? "square").toLowerCase();
+  if (v === "square" || v === "portrait" || v === "landscape" || v === "story") {
+    return v;
+  }
+  return "square";
+}
+
+function pickRepurposeBlock(
+  plan: Record<string, unknown>,
+  article: HarvestedArticle,
+  channel: Channel,
+): Record<string, unknown> {
+  const raw = plan[channel];
+  if (raw && typeof raw === "object") {
+    return raw as Record<string, unknown>;
+  }
+  if (channel === "tiktok" && plan.caption !== undefined) {
+    return {
+      caption: plan.caption,
+      hashtags: plan.hashtags ?? [],
+      avatar_script: plan.avatar_script ?? plan.caption,
+    };
+  }
+  return templateRepurpose(article, [channel])[channel] as Record<string, unknown>;
 }
 
 /**
- * GitHub Actions / cron: harvest → Claude (TikTok JSON) → HeyGen video (if configured) or Pollinations image → SocialAPI post.
+ * Harvest → Claude repurposing (per channel) → TikTok always HeyGen video; other channels Pollinations + text.
  */
 export async function runTikTokAutomation(): Promise<void> {
   const templateCopy = envFlagTrue("AUTOMATION_TEMPLATE_COPY");
-  validateAutomationEnv(templateCopy);
+  const channels = parseAutomationChannels();
 
   const dryRun =
     String(process.env.AUTOMATION_DRY_RUN ?? "").toLowerCase() === "true" ||
@@ -123,6 +212,8 @@ export async function runTikTokAutomation(): Promise<void> {
   const includeMediaUrls = !["0", "false", "no"].includes(
     String(process.env.AUTOMATION_INCLUDE_MEDIA_URLS ?? "true").toLowerCase(),
   );
+
+  validateAutomationEnv(templateCopy, channels, includeMediaUrls);
 
   console.log("[automation] Harvesting articles (Supabase)…");
   let articles: HarvestedArticle[];
@@ -141,6 +232,7 @@ export async function runTikTokAutomation(): Promise<void> {
 
   const article = pickArticle(articles);
   console.log(`[automation] Using article: ${article.title} (${article.source_id})`);
+  console.log(`[automation] Channels: ${channels.join(", ")} (set AUTOMATION_CHANNELS, e.g. tiktok,instagram)`);
 
   let trendLine = "";
   try {
@@ -152,36 +244,31 @@ export async function runTikTokAutomation(): Promise<void> {
     /* soft */
   }
 
-  let plan: Record<string, unknown>;
+  let plan: Record<string, unknown> | undefined;
   if (templateCopy) {
-    console.log(
-      "[automation] AUTOMATION_TEMPLATE_COPY — skipping Claude (caption/hashtags from article; add Anthropic credits for AI copy)",
-    );
-    plan = templateTikTokPlan(article);
+    console.log("[automation] AUTOMATION_TEMPLATE_COPY — template text per channel.");
+    plan = templateRepurpose(article, channels);
   } else {
-    const userPrompt = `You create viral TikTok captions for women-focused relationship advice.
+    const userPrompt = `You repurpose one article into channel-specific social posts for Next Boyfriend (women, dating & relationships).
 
 Article title: ${article.title}
 Article excerpt: ${article.excerpt}
 Article URL: ${article.url}
 ${trendLine ? `Current trending context (Google Trends, ${geo}): ${trendLine}` : ""}
 
-Return ONLY valid JSON (no markdown) with this shape:
-{
-  "caption": "Main caption, hook in first line, under 2200 chars, no URL spam",
-  "hashtags": ["tag1", "tag2", "up to 8 tags, no # prefix in strings"],
-  "image_prompt": "Detailed Pollinations prompt: stylish, empowering, woman-centered aesthetic, no text in image, vertical social feel"
-}`;
+Return ONLY valid JSON (no markdown) with exactly these top-level keys: ${channels.map((c) => `"${c}"`).join(", ")}
+Shape per channel:
+${schemaLinesForChannels(channels)}
+
+TikTok: avatar_script is the ONLY text spoken by the HeyGen avatar (TTS). Keep it natural and under 300 characters.
+Other channels: use distinct hooks and lengths appropriate to each platform (Instagram = visual + hashtags; Facebook = longer; X = concise).`;
 
     const automationModel = resolveAutomationAnthropicModel();
-    console.log(
-      `[automation] Generating TikTok copy with Claude (model: ${automationModel})…`,
-    );
-    let fromClaude: Record<string, unknown> | undefined;
+    console.log(`[automation] Generating repurposed copy with Claude (model: ${automationModel})…`);
     let raw: string | undefined;
     try {
       raw = await claude(
-        "You are a viral dating-and-relationship content creator for women. Be warm, direct, never fake statistics. Output JSON only.",
+        "You are a viral dating-and-relationship content strategist. Output JSON only. Never fake statistics.",
         userPrompt,
         { model: automationModel },
       );
@@ -190,93 +277,123 @@ Return ONLY valid JSON (no markdown) with this shape:
         throw e;
       }
       const msg = e instanceof Error ? e.message : String(e);
-      console.warn(
-        "[automation] Anthropic credits exhausted — using template copy (excerpt + default hashtags).",
-      );
-      await notifyAnthropicCreditsDepleted({
-        articleTitle: article.title,
-        errorSnippet: msg,
-      });
-      fromClaude = templateTikTokPlan(article);
+      console.warn("[automation] Anthropic credits exhausted — using template copy per channel.");
+      await notifyAnthropicCreditsDepleted({ articleTitle: article.title, errorSnippet: msg });
+      plan = templateRepurpose(article, channels);
     }
     if (raw !== undefined) {
       try {
-        fromClaude = parseJsonObject(raw);
+        plan = parseJsonObject(raw);
       } catch (e) {
         console.error("[automation] Claude did not return parseable JSON:", raw.slice(0, 500));
         throw e;
       }
     }
-    if (fromClaude === undefined) {
-      throw new Error("[automation] internal: no TikTok plan after Claude");
+    if (plan === undefined) {
+      plan = templateRepurpose(article, channels);
     }
-    plan = fromClaude;
   }
 
-  const caption = String(plan.caption ?? "");
-  const hashtagsRaw = plan.hashtags;
-  const hashtags = Array.isArray(hashtagsRaw)
-    ? hashtagsRaw.map((h) => String(h)).filter(Boolean)
-    : [];
-  const imagePrompt = String(plan.image_prompt ?? article.title);
+  const ordered = CHANNEL_ORDER.filter((c) => channels.includes(c));
 
-  if (!caption) {
-    throw new Error("Claude JSON missing caption");
+  for (const channel of ordered) {
+    const block = pickRepurposeBlock(plan, article, channel);
+    await postOneChannel({
+      channel,
+      block,
+      article,
+      dryRun,
+      includeMediaUrls,
+    });
+  }
+}
+
+type PostOneArgs = {
+  channel: Channel;
+  block: Record<string, unknown>;
+  article: HarvestedArticle;
+  dryRun: boolean;
+  includeMediaUrls: boolean;
+};
+
+async function postOneChannel(args: PostOneArgs): Promise<void> {
+  const { channel, block, article, dryRun, includeMediaUrls } = args;
+
+  let text = "";
+  if (channel === "x") {
+    text = String(block.text ?? "").trim();
+  } else {
+    const cap = String(block.caption ?? "");
+    const hashtagsRaw = block.hashtags;
+    const hashtags = Array.isArray(hashtagsRaw)
+      ? hashtagsRaw.map((h) => String(h)).filter(Boolean)
+      : [];
+    text = buildPostText(cap, hashtags);
   }
 
-  const heygenVideo = useHeygenForVideo();
-  const { image_url: imageUrl } = heygenVideo
-    ? { image_url: "" }
-    : buildPollinationsImageUrl(imagePrompt, "story");
-  const postText = buildPostText(caption, hashtags);
+  if (!text && channel !== "tiktok") {
+    console.warn(`[automation] Skipping ${channel}: empty text.`);
+    return;
+  }
 
-  const accountId = await resolveTikTokAccountId();
+  const accountId = await resolvePlatformAccount(channel);
   const body: Record<string, unknown> = {
-    text: postText,
+    text: text || String(block.caption ?? ""),
     targets: [{ account_id: accountId }],
   };
   if (!dryRun) {
     body.publish_now = true;
   }
+
   if (includeMediaUrls) {
-    if (dryRun) {
-      if (heygenVideo) {
+    if (channel === "tiktok") {
+      const script = truncateHeygenScript(
+        String(block.avatar_script ?? block.caption ?? ""),
+      );
+      if (!dryRun && !script.trim()) {
+        throw new Error("[automation] TikTok: avatar_script is empty for HeyGen.");
+      }
+      if (dryRun) {
         console.log(
-          "[automation] AUTOMATION_DRY_RUN — would: HeyGen avatar (TTS script) → wait for MP4 → POST /v1/media/upload → media_ids",
+          `[automation] AUTOMATION_DRY_RUN [${channel}] — HeyGen avatar (script ${script.length} chars) → MP4 → SocialAPI media_ids`,
         );
       } else {
         console.log(
-          "[automation] AUTOMATION_DRY_RUN — would download Pollinations image then POST /v1/media/upload → media_ids:",
-          imageUrl.slice(0, 120) + (imageUrl.length > 120 ? "…" : ""),
+          `[automation] [${channel}] HeyGen avatar video (script ${script.length} chars)…`,
         );
+        const videoId = await generateHeygenAvatarVideo({
+          script,
+          title: article.title.slice(0, 120),
+        });
+        console.log(`[automation] HeyGen job ${videoId} — waiting for render…`);
+        const mp4Url = await waitForHeygenVideoComplete(videoId);
+        console.log("[automation] Uploading HeyGen MP4 to SocialAPI…");
+        const mediaId = await uploadHeygenMp4ToSocial(mp4Url, `tiktok-${channel}.mp4`);
+        body.media_ids = [mediaId];
       }
-    } else if (heygenVideo) {
-      const script = truncateHeygenScript(caption);
-      console.log(
-        `[automation] HeyGen avatar video (script ${script.length} chars; set AUTOMATION_USE_HEYGEN=false for Pollinations image only)…`,
-      );
-      const videoId = await generateHeygenAvatarVideo({
-        script,
-        title: article.title.slice(0, 120),
-      });
-      console.log(`[automation] HeyGen job ${videoId} — waiting for render (can take several minutes)…`);
-      const mp4Url = await waitForHeygenVideoComplete(videoId);
-      console.log("[automation] Uploading HeyGen MP4 to SocialAPI…");
-      const mediaId = await uploadMediaFromRemoteUrl(mp4Url, "tiktok-heygen.mp4");
-      body.media_ids = [mediaId];
-    } else {
-      console.log("[automation] Uploading Pollinations image to SocialAPI (for media_ids)…");
-      const mediaId = await uploadMediaFromPollinationsUrl(imageUrl);
-      body.media_ids = [mediaId];
+    } else if (channel === "instagram" || channel === "facebook") {
+      const prompt = String(block.image_prompt ?? article.title);
+      const fmt = asPollinationsFormat(block.pollinations_format);
+      const { image_url: imageUrl } = buildPollinationsImageUrl(prompt, fmt);
+      if (dryRun) {
+        console.log(
+          `[automation] AUTOMATION_DRY_RUN [${channel}] — Pollinations (${fmt}) → POST /v1/media/upload:`,
+          imageUrl.slice(0, 100) + "…",
+        );
+      } else {
+        console.log(`[automation] [${channel}] Uploading Pollinations image (${fmt})…`);
+        const mediaId = await uploadMediaFromPollinationsUrl(imageUrl);
+        body.media_ids = [mediaId];
+      }
     }
   }
 
   if (dryRun) {
-    console.log("[automation] AUTOMATION_DRY_RUN — would POST /posts:", JSON.stringify(body, null, 2));
+    console.log(`[automation] AUTOMATION_DRY_RUN [${channel}] — would POST /posts:`, JSON.stringify(body, null, 2));
     return;
   }
 
-  console.log("[automation] Posting to TikTok via SocialAPI…");
+  console.log(`[automation] Posting to ${channel} via SocialAPI…`);
   const result = await socialApi("/posts", "POST", body);
-  console.log("[automation] Success:", JSON.stringify(result, null, 2));
+  console.log(`[automation] Success [${channel}]:`, JSON.stringify(result, null, 2));
 }

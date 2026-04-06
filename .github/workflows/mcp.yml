@@ -29,7 +29,31 @@ jobs:
             exit 1
           fi
           echo "SocialAPI credential is set (value hidden)."
+      - name: Verify HeyGen secret (TikTok + media)
+        env:
+          HEYGEN_API_KEY: ${{ secrets.HEYGEN_API_KEY }}
+          AUTOMATION_CHANNELS: ${{ vars.AUTOMATION_CHANNELS }}
+          AUTOMATION_INCLUDE_MEDIA_URLS: ${{ vars.AUTOMATION_INCLUDE_MEDIA_URLS }}
+        run: |
+          set -e
+          ch="${AUTOMATION_CHANNELS:-tiktok}"
+          inc="${AUTOMATION_INCLUDE_MEDIA_URLS:-true}"
+          inc_lc=$(echo "$inc" | tr '[:upper:]' '[:lower:]')
+          if echo "$inc_lc" | grep -qE '^(0|false|no)$'; then
+            echo "AUTOMATION_INCLUDE_MEDIA_URLS is off — skipping HeyGen check."
+            exit 0
+          fi
+          if ! echo "$ch" | grep -qiE '(^|[,;[:space:]])tiktok([,;[:space:]]|$)'; then
+            echo "TikTok not in AUTOMATION_CHANNELS — skipping HeyGen check."
+            exit 0
+          fi
+          if [ -z "${HEYGEN_API_KEY:-}" ]; then
+            echo "::error::Add repository secret HEYGEN_API_KEY (HeyGen app → API). TikTok with media requires it, or set AUTOMATION_INCLUDE_MEDIA_URLS=false for text-only."
+            exit 1
+          fi
+          echo "HeyGen credential is set (value hidden)."
       # If harvest fails: check Supabase secrets/vars and RLS. If POST fails on media: vars AUTOMATION_INCLUDE_MEDIA_URLS=false
+      # Set vars AUTOMATION_CHANNELS (e.g. tiktok,instagram) and secrets AUTOMATION_*_ACCOUNT_ID per connected SocialAPI account.
       - run: npm run automate
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -39,10 +63,16 @@ jobs:
           SOCAPI_KEY: ${{ secrets.SOCAPI_KEY || secrets.SOCIAL_API_KEY }}
           SOCIAL_API_KEY: ${{ secrets.SOCIAL_API_KEY || secrets.SOCAPI_KEY }}
           HEYGEN_API_KEY: ${{ secrets.HEYGEN_API_KEY }}
-          AUTOMATION_USE_HEYGEN: ${{ vars.AUTOMATION_USE_HEYGEN }}
           AUTOMATION_HEYGEN_AVATAR_ID: ${{ vars.AUTOMATION_HEYGEN_AVATAR_ID }}
           AUTOMATION_HEYGEN_VOICE_ID: ${{ vars.AUTOMATION_HEYGEN_VOICE_ID }}
+          AUTOMATION_HEYGEN_WIDTH: ${{ vars.AUTOMATION_HEYGEN_WIDTH }}
+          AUTOMATION_HEYGEN_HEIGHT: ${{ vars.AUTOMATION_HEYGEN_HEIGHT }}
+          AUTOMATION_SKIP_HEYGEN_REENCODE: ${{ vars.AUTOMATION_SKIP_HEYGEN_REENCODE }}
+          AUTOMATION_CHANNELS: ${{ vars.AUTOMATION_CHANNELS }}
           AUTOMATION_TIKTOK_ACCOUNT_ID: ${{ secrets.AUTOMATION_TIKTOK_ACCOUNT_ID }}
+          AUTOMATION_INSTAGRAM_ACCOUNT_ID: ${{ secrets.AUTOMATION_INSTAGRAM_ACCOUNT_ID }}
+          AUTOMATION_FACEBOOK_ACCOUNT_ID: ${{ secrets.AUTOMATION_FACEBOOK_ACCOUNT_ID }}
+          AUTOMATION_X_ACCOUNT_ID: ${{ secrets.AUTOMATION_X_ACCOUNT_ID }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_URL: ${{ vars.SUPABASE_URL != '' && vars.SUPABASE_URL || 'https://whkenlpvrcaztgmvkusa.supabase.co' }}
@@ -53,6 +83,7 @@ jobs:
           AUTOMATION_HARVEST_LIMIT: ${{ vars.AUTOMATION_HARVEST_LIMIT }}
           AUTOMATION_TRENDS_GEO: ${{ vars.AUTOMATION_TRENDS_GEO }}
           AUTOMATION_INCLUDE_MEDIA_URLS: ${{ vars.AUTOMATION_INCLUDE_MEDIA_URLS }}
+          AUTOMATION_CONTENT_SEED: ${{ vars.AUTOMATION_CONTENT_SEED }}
           # true = skip Claude (use excerpt + fixed hashtags); use when Anthropic has no API credits yet
           AUTOMATION_TEMPLATE_COPY: ${{ vars.AUTOMATION_TEMPLATE_COPY }}
           AUTOMATION_NOTIFY_EMAIL: ${{ vars.AUTOMATION_NOTIFY_EMAIL }}
