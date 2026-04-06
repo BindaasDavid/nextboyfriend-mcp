@@ -54,7 +54,8 @@ function validateAutomationEnv(templateCopy: boolean): void {
   }
 }
 
-const DEFAULT_AUTOMATION_MODEL = "claude-3-5-haiku-20241022";
+/** Cheap automation default; Anthropic retires old IDs — see https://docs.anthropic.com/en/docs/about-claude/models */
+const DEFAULT_AUTOMATION_MODEL = "claude-haiku-4-5-20251001";
 
 /**
  * TikTok cron uses Haiku by default (cheap, enough for JSON captions).
