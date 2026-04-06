@@ -5,6 +5,44 @@
 
 const DEFAULT_SUPABASE_ORIGIN = "https://whkenlpvrcaztgmvkusa.supabase.co";
 
+/** Ensures `https://` so `fetch()` gets a valid absolute URL (host-only env breaks undici). */
+function normalizeHttpOrigin(raw: string, label: string): string {
+  const trimmed = raw.trim().replace(/\/$/, "");
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  let u: URL;
+  try {
+    u = new URL(withScheme);
+  } catch {
+    throw new Error(`${label} must be a valid URL (e.g. https://xxxx.supabase.co). Got: ${raw.slice(0, 120)}`);
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") {
+    throw new Error(`${label} must use http or https`);
+  }
+  return u.origin;
+}
+
+async function fetchSupabaseJson(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const cause =
+      e instanceof Error && e.cause !== undefined
+        ? ` [cause: ${e.cause instanceof Error ? e.cause.message : String(e.cause)}]`
+        : "";
+    let host = "";
+    try {
+      host = new URL(url).host;
+    } catch {
+      /* invalid url already surfaced elsewhere */
+    }
+    throw new Error(
+      `Supabase fetch failed${host ? ` (${host})` : ""}: ${msg}${cause}. ` +
+        `Check SUPABASE_URL (include https://), DNS/VPN, and that the project is reachable.`,
+    );
+  }
+}
+
 function requireSupabaseKey(): string {
   const key =
     (process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim() ||
@@ -21,9 +59,26 @@ function requireSupabaseKey(): string {
 export function supabaseArticlesRestUrl(): string {
   const explicit = (process.env.SUPABASE_ARTICLES_REST_URL ?? "").trim();
   if (explicit) {
-    return explicit;
+    const trimmed = explicit.trim();
+    const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    let u: URL;
+    try {
+      u = new URL(withScheme);
+    } catch {
+      throw new Error(
+        `SUPABASE_ARTICLES_REST_URL must be a valid URL. Got: ${explicit.slice(0, 120)}`,
+      );
+    }
+    let path = u.pathname.replace(/\/$/, "") || "";
+    if (!path || path === "/") {
+      path = "/rest/v1/articles";
+    }
+    return `${u.origin}${path}${u.search}`;
   }
-  const origin = (process.env.SUPABASE_URL ?? DEFAULT_SUPABASE_ORIGIN).replace(/\/$/, "");
+  const origin = normalizeHttpOrigin(
+    process.env.SUPABASE_URL ?? DEFAULT_SUPABASE_ORIGIN,
+    "SUPABASE_URL",
+  );
   return `${origin}/rest/v1/articles`;
 }
 
@@ -70,7 +125,7 @@ export async function listAllSupabaseArticles(
 
   while (rows.length < maxRows) {
     const end = start + pageSize - 1;
-    const res = await fetch(url, {
+    const res = await fetchSupabaseJson(url, {
       headers: {
         apikey: key,
         Authorization: `Bearer ${key}`,
