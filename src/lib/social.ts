@@ -53,6 +53,37 @@ export async function socialApiMultipartUpload(
   return res.json() as Promise<unknown>;
 }
 
+/** Upload arbitrary bytes (image or video) to SocialAPI; returns `media_id` for `POST /posts`. */
+export async function uploadMediaBuffer(
+  buffer: Buffer,
+  mime: string,
+  filename: string,
+): Promise<string> {
+  const blob = new Blob([new Uint8Array(buffer)], { type: mime });
+  const form = new FormData();
+  form.append("file", blob, filename);
+  const data = (await socialApiMultipartUpload("/media/upload", form)) as { media_id?: string };
+  if (!data.media_id) {
+    throw new Error(`SocialAPI /media/upload missing media_id: ${JSON.stringify(data)}`);
+  }
+  return data.media_id;
+}
+
+/** Download a remote URL (Pollinations, HeyGen MP4, etc.) and upload to SocialAPI. */
+export async function uploadMediaFromRemoteUrl(
+  remoteUrl: string,
+  filename: string,
+  downloadTimeoutMs = 600_000,
+): Promise<string> {
+  const downloadRes = await fetch(remoteUrl, { signal: AbortSignal.timeout(downloadTimeoutMs) });
+  if (!downloadRes.ok) {
+    throw new Error(`Media download failed (${downloadRes.status}): ${remoteUrl.slice(0, 160)}`);
+  }
+  const ct = downloadRes.headers.get("content-type") ?? "application/octet-stream";
+  const buf = Buffer.from(await downloadRes.arrayBuffer());
+  return uploadMediaBuffer(buf, ct, filename);
+}
+
 /**
  * Download Pollinations image bytes and upload to SocialAPI storage.
  * CreatePostRequest uses `media_ids`, not `media_urls` — remote URLs are ignored.
@@ -72,12 +103,5 @@ export async function uploadMediaFromPollinationsUrl(imageUrl: string): Promise<
       : ct.includes("webp")
         ? "webp"
         : "png";
-  const blob = new Blob([buf], { type: ct });
-  const form = new FormData();
-  form.append("file", blob, `tiktok-cover.${ext}`);
-  const data = (await socialApiMultipartUpload("/media/upload", form)) as { media_id?: string };
-  if (!data.media_id) {
-    throw new Error(`SocialAPI /media/upload missing media_id: ${JSON.stringify(data)}`);
-  }
-  return data.media_id;
+  return uploadMediaBuffer(buf, ct, `tiktok-cover.${ext}`);
 }

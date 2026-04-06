@@ -11,6 +11,7 @@ env:
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -38,6 +39,9 @@ jobs:
           SOCAPI_KEY: ${{ secrets.SOCAPI_KEY || secrets.SOCIAL_API_KEY }}
           SOCIAL_API_KEY: ${{ secrets.SOCIAL_API_KEY || secrets.SOCAPI_KEY }}
           HEYGEN_API_KEY: ${{ secrets.HEYGEN_API_KEY }}
+          AUTOMATION_USE_HEYGEN: ${{ vars.AUTOMATION_USE_HEYGEN }}
+          AUTOMATION_HEYGEN_AVATAR_ID: ${{ vars.AUTOMATION_HEYGEN_AVATAR_ID }}
+          AUTOMATION_HEYGEN_VOICE_ID: ${{ vars.AUTOMATION_HEYGEN_VOICE_ID }}
           AUTOMATION_TIKTOK_ACCOUNT_ID: ${{ secrets.AUTOMATION_TIKTOK_ACCOUNT_ID }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

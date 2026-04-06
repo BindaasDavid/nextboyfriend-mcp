@@ -6,6 +6,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { claude } from "./lib/claude.js";
+import { generateHeygenAvatarVideo } from "./lib/heygen.js";
 import { resolveProjectPath } from "./lib/paths.js";
 import { buildPollinationsImageUrl } from "./lib/pollinations.js";
 import { normalizePostsList } from "./lib/posts.js";
@@ -417,25 +418,12 @@ server.tool(
     if (!HEYGEN_API_KEY) {
       throw new Error("HEYGEN_API_KEY is not set.");
     }
-    const res = await fetch("https://api.heygen.com/v2/video/generate", {
-      method: "POST",
-      headers: { "X-Api-Key": HEYGEN_API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        video_inputs: [
-          {
-            character: { type: "avatar", avatar_id, scale: 1 },
-            voice: { type: "text", input_text: script, voice_id },
-          },
-        ],
-        dimension: { width: 1080, height: 1920 },
-        title,
-      }),
+    const video_id = await generateHeygenAvatarVideo({
+      script,
+      title,
+      avatar_id,
+      voice_id,
     });
-    if (!res.ok) {
-      throw new Error(`HeyGen ${res.status}: ${await res.text()}`);
-    }
-    const data = (await res.json()) as { data?: { video_id?: string } };
-    const video_id = data.data?.video_id;
     const dashboard_url = video_id ? `https://app.heygen.com/videos/${video_id}` : "";
     return {
       content: [

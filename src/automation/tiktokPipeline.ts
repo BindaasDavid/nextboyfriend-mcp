@@ -2,8 +2,17 @@ import { harvestArticles } from "../lib/articleHarvest.js";
 import type { HarvestedArticle } from "../lib/articleTypes.js";
 import { notifyAnthropicCreditsDepleted } from "../lib/automationNotify.js";
 import { claude, isAnthropicInsufficientCreditError } from "../lib/claude.js";
+import {
+  generateHeygenAvatarVideo,
+  truncateHeygenScript,
+  waitForHeygenVideoComplete,
+} from "../lib/heygen.js";
 import { buildPollinationsImageUrl } from "../lib/pollinations.js";
-import { socialApi, uploadMediaFromPollinationsUrl } from "../lib/social.js";
+import {
+  socialApi,
+  uploadMediaFromPollinationsUrl,
+  uploadMediaFromRemoteUrl,
+} from "../lib/social.js";
 import { fetchGoogleTrendsSnippet } from "../lib/trends.js";
 import { parseJsonObject } from "./json.js";
 import { resolveTikTokAccountId } from "./tiktokAccounts.js";
@@ -87,8 +96,18 @@ function templateTikTokPlan(article: HarvestedArticle): Record<string, unknown> 
   };
 }
 
+function useHeygenForVideo(): boolean {
+  const key = (process.env.HEYGEN_API_KEY ?? "").trim();
+  if (!key) {
+    return false;
+  }
+  return !["0", "false", "no"].includes(
+    String(process.env.AUTOMATION_USE_HEYGEN ?? "").trim().toLowerCase(),
+  );
+}
+
 /**
- * GitHub Actions / cron: harvest → trends snippet → Claude (TikTok JSON) → Pollinations image → SocialAPI post (TikTok only).
+ * GitHub Actions / cron: harvest → Claude (TikTok JSON) → HeyGen video (if configured) or Pollinations image → SocialAPI post.
  */
 export async function runTikTokAutomation(): Promise<void> {
   const templateCopy = envFlagTrue("AUTOMATION_TEMPLATE_COPY");
@@ -205,7 +224,10 @@ Return ONLY valid JSON (no markdown) with this shape:
     throw new Error("Claude JSON missing caption");
   }
 
-  const { image_url: imageUrl } = buildPollinationsImageUrl(imagePrompt, "story");
+  const heygenVideo = useHeygenForVideo();
+  const { image_url: imageUrl } = heygenVideo
+    ? { image_url: "" }
+    : buildPollinationsImageUrl(imagePrompt, "story");
   const postText = buildPostText(caption, hashtags);
 
   const accountId = await resolveTikTokAccountId();
@@ -218,10 +240,30 @@ Return ONLY valid JSON (no markdown) with this shape:
   }
   if (includeMediaUrls) {
     if (dryRun) {
+      if (heygenVideo) {
+        console.log(
+          "[automation] AUTOMATION_DRY_RUN — would: HeyGen avatar (TTS script) → wait for MP4 → POST /v1/media/upload → media_ids",
+        );
+      } else {
+        console.log(
+          "[automation] AUTOMATION_DRY_RUN — would download Pollinations image then POST /v1/media/upload → media_ids:",
+          imageUrl.slice(0, 120) + (imageUrl.length > 120 ? "…" : ""),
+        );
+      }
+    } else if (heygenVideo) {
+      const script = truncateHeygenScript(caption);
       console.log(
-        "[automation] AUTOMATION_DRY_RUN — would download Pollinations image then POST /v1/media/upload → media_ids:",
-        imageUrl.slice(0, 120) + (imageUrl.length > 120 ? "…" : ""),
+        `[automation] HeyGen avatar video (script ${script.length} chars; set AUTOMATION_USE_HEYGEN=false for Pollinations image only)…`,
       );
+      const videoId = await generateHeygenAvatarVideo({
+        script,
+        title: article.title.slice(0, 120),
+      });
+      console.log(`[automation] HeyGen job ${videoId} — waiting for render (can take several minutes)…`);
+      const mp4Url = await waitForHeygenVideoComplete(videoId);
+      console.log("[automation] Uploading HeyGen MP4 to SocialAPI…");
+      const mediaId = await uploadMediaFromRemoteUrl(mp4Url, "tiktok-heygen.mp4");
+      body.media_ids = [mediaId];
     } else {
       console.log("[automation] Uploading Pollinations image to SocialAPI (for media_ids)…");
       const mediaId = await uploadMediaFromPollinationsUrl(imageUrl);
