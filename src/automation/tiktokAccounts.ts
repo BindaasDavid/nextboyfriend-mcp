@@ -13,20 +13,18 @@ function listAccountsFromResponse(raw: unknown): Record<string, unknown>[] {
   if (!top) {
     return [];
   }
-  const data = top.data;
-  if (Array.isArray(data)) {
-    return data.filter((x) => x && typeof x === "object") as Record<string, unknown>[];
-  }
-  const accounts = top.accounts;
-  if (Array.isArray(accounts)) {
-    return accounts.filter((x) => x && typeof x === "object") as Record<string, unknown>[];
+  for (const key of ["data", "accounts", "results", "items"] as const) {
+    const arr = top[key];
+    if (Array.isArray(arr)) {
+      return arr.filter((x) => x && typeof x === "object") as Record<string, unknown>[];
+    }
   }
   return [];
 }
 
 function isTikTokAccount(row: Record<string, unknown>): boolean {
-  const p = String(row.platform ?? row.provider ?? row.network ?? row.type ?? "").toLowerCase();
-  const n = String(row.name ?? row.username ?? "").toLowerCase();
+  const p = String(row.platform ?? row.provider ?? row.network ?? row.type ?? row.channel ?? "").toLowerCase();
+  const n = String(row.name ?? row.username ?? row.handle ?? "").toLowerCase();
   return p.includes("tiktok") || n.includes("tiktok");
 }
 
@@ -46,7 +44,18 @@ function rowMatchesEnvId(row: Record<string, unknown>, envNormalized: string): b
   ]
     .filter((x) => x !== undefined && x !== null)
     .map((x) => normalizeHandle(String(x)));
-  return ids.some((id) => id === envNormalized || id.endsWith(envNormalized));
+  return ids.some((id) => id === envNormalized || id.endsWith(envNormalized) || envNormalized.endsWith(id));
+}
+
+function summarizeAccountsForError(rows: Record<string, unknown>[]): string {
+  const lines = rows.slice(0, 12).map((r) => {
+    const id = r.id ?? r.account_id ?? r.accountId ?? "?";
+    const platform = r.platform ?? r.provider ?? r.type ?? "?";
+    const label = r.username ?? r.name ?? r.handle ?? "";
+    return `  - id=${String(id)} platform=${String(platform)} ${label ? `(${String(label)})` : ""}`;
+  });
+  const more = rows.length > 12 ? `\n  … and ${rows.length - 12} more` : "";
+  return lines.join("\n") + more;
 }
 
 /**
@@ -62,13 +71,27 @@ export async function resolveTikTokAccountId(): Promise<string> {
   if (envId) {
     const want = normalizeHandle(envId);
     const tikTokRows = rows.filter(isTikTokAccount);
-    const byEnv = tikTokRows.find((r) => rowMatchesEnvId(r, want));
+    const byEnv =
+      tikTokRows.find((r) => rowMatchesEnvId(r, want)) ??
+      rows.find((r) => rowMatchesEnvId(r, want));
     if (byEnv) {
       const canonical = byEnv.id ?? byEnv.account_id ?? byEnv.accountId;
       if (canonical !== undefined && canonical !== null && String(canonical)) {
         return String(canonical);
       }
     }
+    /** Handles / usernames are not always valid `account_id` for POST /posts — need internal id from /accounts. */
+    if (rows.length > 0) {
+      const tikTokSummary = summarizeAccountsForError(tikTokRows.length ? tikTokRows : rows);
+      throw new Error(
+        `AUTOMATION_TIKTOK_ACCOUNT_ID="${envId}" did not match a TikTok account from SocialAPI GET /accounts.\n` +
+          `Use the exact internal id from the list below (or fix the handle). Connected accounts:\n${tikTokSummary}\n` +
+          `In GitHub: Settings → Secrets → AUTOMATION_TIKTOK_ACCOUNT_ID. In SocialAPI dashboard, confirm TikTok is connected.`,
+      );
+    }
+    console.warn(
+      `[automation] GET /accounts returned 0 rows; posting with AUTOMATION_TIKTOK_ACCOUNT_ID as-is (${envId}). If POST fails with account_not_found, set the internal id from SocialAPI.`,
+    );
     return envId;
   }
 
@@ -78,6 +101,9 @@ export async function resolveTikTokAccountId(): Promise<string> {
     return String(id);
   }
   throw new Error(
-    "No TikTok account: set AUTOMATION_TIKTOK_ACCOUNT_ID (e.g. nextboyfriend_community) or connect TikTok in SocialAPI and ensure /accounts returns it.",
+    rows.length > 0
+      ? `No TikTok account in SocialAPI response. Accounts returned:\n${summarizeAccountsForError(rows)}\n` +
+          `Connect TikTok in SocialAPI or set AUTOMATION_TIKTOK_ACCOUNT_ID to an id from the list.`
+      : "No TikTok account: GET /accounts returned no rows. Check SOCAPI_KEY and SocialAPI dashboard (connect TikTok).",
   );
 }
