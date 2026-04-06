@@ -13,7 +13,8 @@
     "watch": "tsc --watch",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "automate": "node dist/run.js"
+    "automate": "node dist/run.js",
+    "automate:template": "AUTOMATION_TEMPLATE_COPY=true node dist/run.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.82.0",
