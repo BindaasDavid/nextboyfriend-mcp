@@ -9,7 +9,7 @@ import { claude } from "./lib/claude.js";
 import { resolveProjectPath } from "./lib/paths.js";
 import { buildPollinationsImageUrl } from "./lib/pollinations.js";
 import { normalizePostsList } from "./lib/posts.js";
-import { socialApi } from "./lib/social.js";
+import { socialApi, uploadMediaFromPollinationsUrl } from "./lib/social.js";
 import { parseTrendNewsRelated } from "./lib/trends.js";
 import { xmlParser } from "./lib/xml.js";
 import { listAllSupabaseArticles, supabaseArticlesRestUrl } from "./lib/supabaseArticles.js";
@@ -484,14 +484,15 @@ server.tool(
 
 server.tool(
   "create_post",
-  "Create a post via SocialAPI",
+  "Create a post via SocialAPI. Prefer media_ids (from SocialAPI /v1/media/upload). If media_urls is set, the first URL is downloaded and uploaded to obtain media_ids (Pollinations URLs work).",
   {
     account_ids: z.array(z.string()),
     text: z.string(),
     scheduled_at: z.string().optional(),
+    media_ids: z.array(z.string()).optional(),
     media_urls: z.array(z.string()).optional(),
   },
-  async ({ account_ids, text, scheduled_at, media_urls }) => {
+  async ({ account_ids, text, scheduled_at, media_ids, media_urls }) => {
     const body: Record<string, unknown> = {
       text,
       targets: account_ids.map((account_id) => ({ account_id })),
@@ -499,8 +500,12 @@ server.tool(
     if (scheduled_at !== undefined) {
       body.scheduled_at = scheduled_at;
     }
-    if (media_urls !== undefined) {
-      body.media_urls = media_urls;
+    let ids = media_ids;
+    if ((!ids || ids.length === 0) && media_urls?.length) {
+      ids = [await uploadMediaFromPollinationsUrl(media_urls[0]!)];
+    }
+    if (ids?.length) {
+      body.media_ids = ids;
     }
     const data = await socialApi("/posts", "POST", body);
     return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };

@@ -3,7 +3,7 @@ import type { HarvestedArticle } from "../lib/articleTypes.js";
 import { notifyAnthropicCreditsDepleted } from "../lib/automationNotify.js";
 import { claude, isAnthropicInsufficientCreditError } from "../lib/claude.js";
 import { buildPollinationsImageUrl } from "../lib/pollinations.js";
-import { socialApi } from "../lib/social.js";
+import { socialApi, uploadMediaFromPollinationsUrl } from "../lib/social.js";
 import { fetchGoogleTrendsSnippet } from "../lib/trends.js";
 import { parseJsonObject } from "./json.js";
 import { resolveTikTokAccountId } from "./tiktokAccounts.js";
@@ -213,8 +213,20 @@ Return ONLY valid JSON (no markdown) with this shape:
     text: postText,
     targets: [{ account_id: accountId }],
   };
+  if (!dryRun) {
+    body.publish_now = true;
+  }
   if (includeMediaUrls) {
-    body.media_urls = [imageUrl];
+    if (dryRun) {
+      console.log(
+        "[automation] AUTOMATION_DRY_RUN — would download Pollinations image then POST /v1/media/upload → media_ids:",
+        imageUrl.slice(0, 120) + (imageUrl.length > 120 ? "…" : ""),
+      );
+    } else {
+      console.log("[automation] Uploading Pollinations image to SocialAPI (for media_ids)…");
+      const mediaId = await uploadMediaFromPollinationsUrl(imageUrl);
+      body.media_ids = [mediaId];
+    }
   }
 
   if (dryRun) {

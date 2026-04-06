@@ -30,3 +30,54 @@ export async function socialApi(
   }
   return res.json() as Promise<unknown>;
 }
+
+/** Multipart upload — do not set Content-Type (fetch sets boundary). */
+export async function socialApiMultipartUpload(
+  path: string,
+  formData: FormData,
+): Promise<unknown> {
+  const token = bearer();
+  if (!token) {
+    throw new Error("SOCAPI_KEY or SOCIAL_API_KEY is not set");
+  }
+  const res = await fetch(`${SOCIAL_BASE}${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  });
+  if (!res.ok) {
+    throw new Error(`SocialAPI ${res.status}: ${await res.text()}`);
+  }
+  return res.json() as Promise<unknown>;
+}
+
+/**
+ * Download Pollinations image bytes and upload to SocialAPI storage.
+ * CreatePostRequest uses `media_ids`, not `media_urls` — remote URLs are ignored.
+ */
+export async function uploadMediaFromPollinationsUrl(imageUrl: string): Promise<string> {
+  const downloadRes = await fetch(imageUrl, { signal: AbortSignal.timeout(120_000) });
+  if (!downloadRes.ok) {
+    throw new Error(
+      `Pollinations download failed (${downloadRes.status}). URL: ${imageUrl.slice(0, 160)}`,
+    );
+  }
+  const ct = downloadRes.headers.get("content-type") ?? "image/png";
+  const buf = Buffer.from(await downloadRes.arrayBuffer());
+  const ext =
+    ct.includes("jpeg") || ct.includes("jpg")
+      ? "jpg"
+      : ct.includes("webp")
+        ? "webp"
+        : "png";
+  const blob = new Blob([buf], { type: ct });
+  const form = new FormData();
+  form.append("file", blob, `tiktok-cover.${ext}`);
+  const data = (await socialApiMultipartUpload("/media/upload", form)) as { media_id?: string };
+  if (!data.media_id) {
+    throw new Error(`SocialAPI /media/upload missing media_id: ${JSON.stringify(data)}`);
+  }
+  return data.media_id;
+}
