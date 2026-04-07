@@ -113,17 +113,13 @@ export async function uploadHeygenMp4ToSocial(mp4Url: string, filename: string):
     String(process.env.AUTOMATION_SKIP_HEYGEN_REENCODE ?? "").toLowerCase(),
   );
   if (!skip) {
-    try {
-      const next = compressMp4ForSocialUpload(buf);
-      console.log(
-        `[automation] Re-encoded MP4 for SocialAPI: ${(buf.length / 1e6).toFixed(2)} MB → ${(next.length / 1e6).toFixed(2)} MB`,
-      );
-      buf = Buffer.from(next);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.warn(`[automation] ffmpeg re-encode failed (${msg}) — uploading original bytes`);
-    }
+    const before = buf.length;
+    buf = Buffer.from(compressMp4ForSocialUpload(buf));
+    console.log(
+      `[automation] Re-encoded MP4 for SocialAPI: ${(before / 1e6).toFixed(2)} MB → ${(buf.length / 1e6).toFixed(2)} MB`,
+    );
   }
+  console.log(`[automation] POST /media/upload payload ~${(buf.length / 1e6).toFixed(2)} MB (multipart)`);
   return uploadMediaBuffer(buf, ct, filename);
 }
 

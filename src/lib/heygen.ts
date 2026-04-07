@@ -5,8 +5,8 @@
 
 const DEFAULT_AVATAR_ID = "Daisy-inskirt-20220818";
 const DEFAULT_VOICE_ID = "1bd001e7e50f421d891986aad5158bc8";
-/** Default 9:16 — smaller than 1080p to keep MP4 under SocialAPI upload limits */
-const DEFAULT_DIMENSION = { width: 720, height: 1280 };
+/** Default 9:16 — modest resolution so HeyGen output + re-encode stay under SocialAPI upload limits */
+const DEFAULT_DIMENSION = { width: 540, height: 960 };
 /** HeyGen text-to-speech input limit — keep under API caps */
 const MAX_SCRIPT_CHARS = 300;
 
